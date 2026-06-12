@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aépio — Gerador de Código</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+  <script src="templates/jspdf.umd.min.js"></script>
+</head>
+
+<body>
+
+  <!-- ── Topbar (tablet / mobile only) ── -->
+  <header class="topbar">
+    <button class="topbar-home" id="topbar-home" type="button">
+      <img src="logo-aepio.png" alt="Aépio" class="topbar-logo" />
+      <span class="topbar-sub">GERADOR DE CÓDIGO</span>
+    </button>
+    <button class="topbar-menu" id="topbar-menu" type="button" aria-label="Menu">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <rect x="2" y="4" width="14" height="1.8" rx=".9" fill="currentColor"/>
+        <rect x="2" y="8.1" width="14" height="1.8" rx=".9" fill="currentColor"/>
+        <rect x="2" y="12.2" width="14" height="1.8" rx=".9" fill="currentColor"/>
+      </svg>
+    </button>
+  </header>
+
+  <!-- ── Mobile nav backdrop ── -->
+  <div class="mobile-nav-backdrop" id="mobile-nav-backdrop"></div>
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="logo-aepio.png" alt="Aépio" />
+      <div class="sidebar-sub">GERADOR DE CÓDIGO</div>
+    </div>
+    <nav class="sidebar-nav">
+      <button class="nav-item active" id="nav-home">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+          <path d="M2 7l6-5 6 5v7a1 1 0 01-1 1H9v-4H7v4H3a1 1 0 01-1-1V7z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+        </svg>
+        Gerador de Código
+      </button>
+      <!-- Cotação — oculto na v1, será habilitado na v2 -->
+      <button class="nav-item" id="nav-order" style="position:relative;display:none;">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+          <path d="M2 3h12l-1.5 9H3.5L2 3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M5 3V2a1 1 0 011-1h4a1 1 0 011 1v1" stroke="currentColor" stroke-width="1.5"/>
+          <circle cx="6" cy="14.5" r="1" fill="currentColor"/><circle cx="11" cy="14.5" r="1" fill="currentColor"/>
+        </svg>
+        Cotação
+        <span class="order-badge" style="display:none;margin-left:auto;background:var(--blue);color:#fff;font-size:10px;font-weight:700;border-radius:20px;padding:1px 7px;min-width:18px;text-align:center;">0</span>
+      </button>
+      <div id="sidebar-clients-section"></div>
+    </nav>
+    <div class="sidebar-footer">v1.2 — Aépio</div>
+  </aside>
+
+  <!-- ── Main ── -->
+  <main class="main-content">
+
+    <!-- Wizard: family + configure phases render here -->
+    <div id="wizard-root"></div>
+
+    <!-- Conditions section: shown after configure phase -->
+    <div id="conditions-section" style="display:none">
+
+      <!-- Dynamic header injected by JS -->
+      <div id="conditions-header"></div>
+
+      <!-- ── Code Output ── -->
+      <div class="code-output-section">
+        <div class="code-output-label">ORDER CODE</div>
+        <div class="code-display-wrap">
+          <div class="code-display empty" id="code-display">Preencha os campos obrigatórios…</div>
+          <button class="btn-copy" id="btn-copy">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <rect x="5" y="5" width="8" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M3 11V3a1 1 0 011-1h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            Copiar
+          </button>
+        </div>
+        <div class="code-segments" id="code-segments"></div>
+        <div class="code-desc" id="code-desc" style="display:none"></div>
+      </div>
+
+      <!-- ── Condições do Processo ── -->
+      <div class="card section open">
+        <div class="section-header">
+          <span class="section-title">Condições do Processo — Folha de Dados</span>
+          <span class="section-badge pending">Para Excel</span>
+          <span class="section-chevron">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+              <path d="M3 6l5 5 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+        </div>
+        <div class="section-body">
+          <div class="pdf-fields-grid">
+
+            <!-- hidden -->
+            <input type="hidden" id="pdf-face" />
+            <input type="hidden" id="pdf-range" />
+
+            <!-- ─── Identificação ─── -->
+            <div class="form-group-divider">Identificação</div>
+
+            <div class="form-group">
+              <label for="pdf-cliente">Cliente</label>
+              <input type="text" id="pdf-cliente" class="pdf-extra-field" placeholder="Ex: Empresa S.A." />
+            </div>
+            <div class="form-group">
+              <label for="pdf-num-doc">N° Documento</label>
+              <input type="text" id="pdf-num-doc" class="pdf-extra-field" placeholder="Ex: 002-26" />
+            </div>
+            <div class="form-group">
+              <label for="pdf-aplicacao">Aplicação</label>
+              <input type="text" id="pdf-aplicacao" class="pdf-extra-field" placeholder="Ex: Medição de gás natural — Planta A" />
+            </div>
+
+            <!-- ─── Seções ocultáveis por família (ex: TUS não usa condições de processo) ─── -->
+            <div id="conditions-process-sections">
+
+            <!-- ─── Fluido e Temperatura ─── -->
+            <div class="form-group-divider">Fluido e Temperatura</div>
+
+            <div class="form-group">
+              <label for="pdf-fluido">Fluido</label>
+              <input type="text" id="pdf-fluido" class="pdf-extra-field" placeholder="Ex: Água" />
+            </div>
+            <div class="form-group">
+              <label for="pdf-estado">Estado do Fluido</label>
+              <div class="select-wrapper">
+                <select id="pdf-estado" class="pdf-extra-field">
+                  <option value="">—</option>
+                  <option value="LÍQUIDO">Líquido</option>
+                  <option value="GÁS">Gás</option>
+                  <option value="VAPOR">Vapor</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="pdf-temp">Temperatura de Operação (°C)</label>
+              <input type="text" id="pdf-temp" class="pdf-extra-field" placeholder="Ex: 25" />
+            </div>
+            <div class="form-group" id="field-temp-projeto">
+              <label for="pdf-temp-proj">Temperatura de Projeto (°C)</label>
+              <input type="text" id="pdf-temp-proj" class="pdf-extra-field" placeholder="Ex: -10 a 60" />
+            </div>
+
+            <!-- ─── Vazão ─── -->
+            <div class="form-group-divider">Vazão</div>
+
+            <!-- Vazão de Operação — ponto único de trabalho -->
+            <div class="form-group">
+              <label for="pdf-qop">Vazão de Operação</label>
+              <div class="input-unit-wrap">
+                <input type="text" id="pdf-qop" class="pdf-extra-field" placeholder="Ex: 850" />
+                <span class="unit-divider"></span>
+                <div class="unit-select-wrap">
+                  <select id="pdf-qunit" class="unit-select">
+                    <option value="m³/h">m³/h</option>
+                    <option value="kg/h">kg/h</option>
+                    <option value="l/h">l/h</option>
+                    <option value="l/min">l/min</option>
+                    <option value="m³/min">m³/min</option>
+                    <option value="Nm³/h">Nm³/h</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Faixa Qmin / Qnormal / Qmax — usa a mesma unidade acima -->
+            <div class="form-group">
+              <label for="pdf-qmin">Qmín</label>
+              <input type="text" id="pdf-qmin" class="pdf-extra-field" placeholder="Ex: 400" />
+            </div>
+            <div class="form-group">
+              <label for="pdf-qnorm">Qnormal</label>
+              <input type="text" id="pdf-qnorm" class="pdf-extra-field" placeholder="Ex: 720" />
+            </div>
+            <div class="form-group">
+              <label for="pdf-qmax">Qmáx</label>
+              <input type="text" id="pdf-qmax" class="pdf-extra-field" placeholder="Ex: 1500" />
+            </div>
+
+            <!-- Sentido do Fluxo -->
+            <div class="form-group">
+              <label for="pdf-sentido">Sentido do Fluxo</label>
+              <div class="select-wrapper">
+                <select id="pdf-sentido" class="pdf-extra-field">
+                  <option value="">—</option>
+                  <option value="ESQUERDA > DIREITA">Esquerda → Direita</option>
+                  <option value="DIREITA > ESQUERDA">Direita → Esquerda</option>
+                  <option value="BIDIRECIONAL">Bidirecional</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- ─── Pressão ─── -->
+            <div class="form-group-divider">Pressão</div>
+
+            <!-- Pressão de Operação — ponto único com unidade própria -->
+            <div class="form-group">
+              <label for="pdf-pressao">Pressão de Operação</label>
+              <div class="input-unit-wrap">
+                <input type="text" id="pdf-pressao" class="pdf-extra-field" placeholder="Ex: 3,3" />
+                <span class="unit-divider"></span>
+                <div class="unit-select-wrap">
+                  <select id="pdf-pressao-unit" class="unit-select">
+                    <option value="bar">bar</option>
+                    <option value="kPa">kPa</option>
+                    <option value="MPa">MPa</option>
+                    <option value="kgf/cm²">kgf/cm²</option>
+                    <option value="psi">psi</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Faixa Pmin / Pnormal / Pmax — unidade compartilhada -->
+            <div class="form-group">
+              <label for="pdf-pmin">Pressão Mín.</label>
+              <input type="text" id="pdf-pmin" class="pdf-extra-field" placeholder="Ex: 1" />
+            </div>
+            <div class="form-group">
+              <label for="pdf-pnorm">Pressão Normal</label>
+              <input type="text" id="pdf-pnorm" class="pdf-extra-field" placeholder="Ex: 5" />
+            </div>
+            <div class="form-group">
+              <label for="pdf-pmax">Pressão Máx.</label>
+              <input type="text" id="pdf-pmax" class="pdf-extra-field" placeholder="Ex: 10" />
+            </div>
+            <div class="form-group">
+              <label for="pdf-p-unit">Unidade de Pressão (Pmin / Pnorm / Pmáx)</label>
+              <div class="select-wrapper">
+                <select id="pdf-p-unit" class="unit-select pdf-extra-field">
+                  <option value="bar">bar</option>
+                  <option value="kPa">kPa</option>
+                  <option value="MPa">MPa</option>
+                  <option value="kgf/cm²">kgf/cm²</option>
+                  <option value="psi">psi</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group" id="field-pressao-proj">
+              <label for="pdf-pressao-proj">Pressão de Projeto (bar)</label>
+              <input type="text" id="pdf-pressao-proj" class="pdf-extra-field" placeholder="Ex: 16" />
+            </div>
+
+            <!-- ─── Propriedades do Fluido ─── -->
+            <div class="form-group-divider" id="divider-propriedades">Propriedades do Fluido</div>
+
+            <div class="form-group" id="field-viscosidade">
+              <label for="pdf-viscosidade">Viscosidade</label>
+              <div class="input-unit-wrap">
+                <input type="text" id="pdf-viscosidade" class="pdf-extra-field" placeholder="Ex: 0,89" />
+                <span class="unit-divider"></span>
+                <div class="unit-select-wrap">
+                  <select id="pdf-viscosidade-unit" class="unit-select">
+                    <option value="Cp">Cp</option>
+                    <option value="mPa&#xB7;s">mPa·s</option>
+                    <option value="Pa&#xB7;s">Pa·s</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div class="form-group" id="field-densidade">
+              <label for="pdf-densidade">Densidade / Massa Específica</label>
+              <div class="input-unit-wrap">
+                <input type="text" id="pdf-densidade" class="pdf-extra-field" placeholder="Ex: 997" />
+                <span class="unit-divider"></span>
+                <div class="unit-select-wrap">
+                  <select id="pdf-densidade-unit" class="unit-select">
+                    <option value="kg/m&#xB3;">kg/m³</option>
+                    <option value="g/cm&#xB3;">g/cm³</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div class="form-group" id="field-dens-relativa">
+              <label for="pdf-dens-relativa">Densidade Relativa</label>
+              <input type="text" id="pdf-dens-relativa" class="pdf-extra-field" placeholder="Ex: 0,65" />
+            </div>
+            <div class="form-group" id="field-compress">
+              <label for="pdf-compress">Fator de Compressibilidade (Z)</label>
+              <input type="text" id="pdf-compress" class="pdf-extra-field" placeholder="Ex: 0,98" />
+            </div>
+            <div class="form-group" id="field-peso-mol">
+              <label for="pdf-peso-mol">Peso Molecular</label>
+              <input type="text" id="pdf-peso-mol" class="pdf-extra-field" placeholder="Ex: 44,01" />
+            </div>
+
+            </div><!-- /#conditions-process-sections -->
+
+            <!-- ─── Dados do Instrumento (auto-preenchidos) ─── -->
+            <div class="form-group-divider">Dados do Instrumento <span class="divider-note">preenchidos automaticamente pelo configurador</span></div>
+
+            <div class="form-group">
+              <label for="pdf-atex">ATEX / Aprovação Ex</label>
+              <input type="text" id="pdf-atex" class="pdf-extra-field auto-field" readonly
+                placeholder="Selecionado no configurador" />
+            </div>
+            <div class="form-group">
+              <label for="pdf-conn-proc">Conexão do Processo</label>
+              <input type="text" id="pdf-conn-proc" class="pdf-extra-field auto-field" readonly
+                placeholder="Selecionado no configurador" />
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Notas ── -->
+      <div class="card section">
+        <div class="section-header">
+          <span class="section-title">Notas</span>
+          <span class="section-chevron">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+              <path d="M3 6l5 5 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+        </div>
+        <div class="section-body">
+          <div class="form-group">
+            <label for="pdf-notas">Notas (aparece na folha de dados)</label>
+            <input type="text" id="pdf-notas" class="pdf-extra-field" placeholder="Anotações adicionais" />
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Actions ── -->
+      <div class="actions-bar">
+        <button class="btn btn-secondary" id="btn-back-configure">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <path d="M13 8H3M7 4L3 8l4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Voltar
+        </button>
+
+        <!-- Dropdown: Salvar -->
+        <div class="action-dropdown">
+          <button class="btn btn-save dropdown-toggle" type="button">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M3 2h8l3 3v9a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              <path d="M6 2v4h5V2M5 9h6M5 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            Salvar
+            <svg class="chevron-down" width="10" height="10" viewBox="0 0 16 16" fill="none">
+              <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <div class="dropdown-menu">
+            <button class="dropdown-item" id="btn-save-spec">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M3 2h8l3 3v9a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                <path d="M6 2v4h5V2M5 9h6M5 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              Salvar Especificacao
+            </button>
+            <button class="dropdown-item" id="btn-save-template">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M3 2h10a1 1 0 011 1v11l-4-2.5L6 14V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              </svg>
+              Salvar como Modelo
+            </button>
+          </div>
+        </div>
+
+        <!-- Dropdown: Exportar -->
+        <div class="action-dropdown">
+          <button class="btn btn-sheet dropdown-toggle" type="button">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M4 1h5.5L13 4.5V14a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              <path d="M9 1v4h4M5 7h6M5 10h6M5 13h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+            Exportar
+            <svg class="chevron-down" width="10" height="10" viewBox="0 0 16 16" fill="none">
+              <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <div class="dropdown-menu">
+            <button class="dropdown-item" id="btn-sheet">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M4 1h5.5L13 4.5V14a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                <path d="M9 1v4h4M5 7h6M5 10h6M5 13h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+              Gerar Folha de Resumo
+            </button>
+            <button class="dropdown-item" id="btn-excel">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <rect x="2" y="1" width="9" height="13" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M5 5h5M5 8h5M5 11h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              Gerar Excel (Folha de Dados)
+            </button>
+            <button class="dropdown-item" id="btn-pdf">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <rect x="3" y="6" width="10" height="7" rx="1" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M5 6V3a1 1 0 011-1h4a1 1 0 011 1v3M5 10h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              Folha de Dados (PDF)
+            </button>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" id="btn-summary">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Ver Resumo
+        </button>
+        <!-- Cotação — oculto na v1 -->
+        <button class="btn btn-order" id="btn-add-order" style="display:none;">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <path d="M2 3h12l-1.5 9H3.5L2 3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M5 3V2a1 1 0 011-1h4a1 1 0 011 1v1" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M8 6v4M6 8h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+          + Cotação
+        </button>
+        <button class="btn btn-ghost" id="btn-reset">Limpar</button>
+      </div>
+
+      <!-- Inline save form (shown when clicking Salvar Especificação) -->
+      <div id="save-spec-area"></div>
+
+    </div><!-- /conditions-section -->
+
+    <!-- Print area -->
+    <div id="print-area"></div>
+
+  </main>
+
+  <script src="templates/template_fd.js"></script>
+  <script src="templates/template_coriolis.js"></script>
+  <script src="templates/template_rot.js"></script>
+  <script src="templates/template_turb.js"></script>
+  <script src="templates/images_b64.js"></script>
+  <script src="templates/font_trevia_b64.js"></script>
+  <script src="families/_shared.js"></script>
+  <script src="families/tef.js"></script>
+  <script src="families/tcf.js"></script>
+  <script src="families/tyl.js"></script>
+  <script src="families/tbqm.js"></script>
+  <script src="families/tus.js"></script>
+  <script src="templates/template_tec.js"></script>
+  <script src="templates/template_tus.js"></script>
+  <script src="families/diaf.js"></script>
+  <script src="families/tec.js"></script>
+  <script src="app.js"></script>
+
+</body>
+</html>

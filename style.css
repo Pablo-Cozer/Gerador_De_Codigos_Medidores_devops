@@ -3,25 +3,8 @@
    Visual: Trevia Groteska · Azul #1A6DCB · Cards brancos
    ============================================================ */
 
-/* ── Trevia Groteska ── */
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-Thin.ttf') format('truetype'); font-weight:100; font-style:normal; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-Thin-Italic.ttf') format('truetype'); font-weight:100; font-style:italic; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-ExtraLight.ttf') format('truetype'); font-weight:200; font-style:normal; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-ExtraLight-Italic.ttf') format('truetype'); font-weight:200; font-style:italic; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-Light.ttf') format('truetype'); font-weight:300; font-style:normal; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-Light-Italic.ttf') format('truetype'); font-weight:300; font-style:italic; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-Regular.ttf') format('truetype'); font-weight:400; font-style:normal; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-Regular-Italic.ttf') format('truetype'); font-weight:400; font-style:italic; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-Medium.ttf') format('truetype'); font-weight:500; font-style:normal; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-Medium-Italic.ttf') format('truetype'); font-weight:500; font-style:italic; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-SemiBold.ttf') format('truetype'); font-weight:600; font-style:normal; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-SemiBold-Italic.ttf') format('truetype'); font-weight:600; font-style:italic; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-Bold.ttf') format('truetype'); font-weight:700; font-style:normal; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-Bold-Italic.ttf') format('truetype'); font-weight:700; font-style:italic; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-ExtraBold.ttf') format('truetype'); font-weight:800; font-style:normal; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-ExtraBold-Italic.ttf') format('truetype'); font-weight:800; font-style:italic; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-Heavy.ttf') format('truetype'); font-weight:900; font-style:normal; font-display:swap; }
-@font-face { font-family:'Trevia Groteska'; src:url('font/TreviaGroteska-Heavy-Italic.ttf') format('truetype'); font-weight:900; font-style:italic; font-display:swap; }
+/* ── Inter (substitui Trevia Groteska) ── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap');
 
 /* ── IBM Plex Mono (códigos de instrumento) ── */
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
@@ -58,7 +41,7 @@
 html, body { height: 100%; }
 
 body {
-  font-family: 'Trevia Groteska', sans-serif;
+  font-family: 'Inter', sans-serif;
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
@@ -336,7 +319,7 @@ body {
   border: 1.5px solid var(--border);
   background: var(--white);
   color: var(--text-md);
-  font-family: 'Trevia Groteska', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -401,7 +384,7 @@ body {
   color: var(--text-lt);
   font-size: 14px;
   font-weight: 400;
-  font-family: 'Trevia Groteska', sans-serif;
+  font-family: 'Inter', sans-serif;
   letter-spacing: 0;
 }
 
@@ -460,7 +443,7 @@ body {
 .code-seg .seg-lbl {
   color: var(--text-lt);
   font-size: 9px;
-  font-family: 'Trevia Groteska', sans-serif;
+  font-family: 'Inter', sans-serif;
   text-transform: uppercase;
   letter-spacing: .04em;
   max-width: 64px;
@@ -479,7 +462,7 @@ body {
   padding: 7px 12px;
   font-size: 12px;
   font-weight: 500;
-  font-family: 'Trevia Groteska', sans-serif;
+  font-family: 'Inter', sans-serif;
   transition: all var(--trans);
   display: flex;
   align-items: center;
@@ -527,7 +510,7 @@ body {
 
 .decode-row input::placeholder {
   color: var(--text-lt);
-  font-family: 'Trevia Groteska', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 12px;
   letter-spacing: 0;
 }
@@ -542,7 +525,7 @@ body {
   padding: 9px 16px;
   font-size: 12px;
   font-weight: 600;
-  font-family: 'Trevia Groteska', sans-serif;
+  font-family: 'Inter', sans-serif;
   transition: all var(--trans);
   white-space: nowrap;
 }
@@ -676,7 +659,7 @@ input[type="text"] {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text);
-  font-family: 'Trevia Groteska', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 13px;
   padding: 9px 12px;
   outline: none;
@@ -906,7 +889,7 @@ select:disabled { opacity: .4; cursor: not-allowed; }
   border: none;
   border-radius: 6px;
   background: transparent;
-  font-family: 'Trevia Groteska', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 13px;
   font-weight: 500;
   color: var(--text);
@@ -935,7 +918,7 @@ select:disabled { opacity: .4; cursor: not-allowed; }
   border: none;
   border-radius: var(--radius);
   cursor: pointer;
-  font-family: 'Trevia Groteska', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 13px;
   font-weight: 600;
   padding: 10px 20px;

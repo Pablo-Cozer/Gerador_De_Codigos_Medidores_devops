@@ -2631,38 +2631,27 @@ async function generatePDF() {
   const result = await buildExcelWorksheet();
   if (!result) return;
 
+  const _jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+  if (!_jsPDF) {
+    showToast('Biblioteca jsPDF não carregada.', false);
+    return;
+  }
+
   try {
-    // Serializa o workbook para buffer .xlsx
-    const xlsxBuf = await result.workbook.xlsx.writeBuffer();
+    const doc = new _jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    if (typeof registerTreviaFont === 'function') registerTreviaFont(doc);
+
+    const ws = result.workbook.worksheets[0];
+    xlsxWorksheetToPdf(ws, result.workbook, doc, 210, 297);
 
     const baseName = ('FolhaDados_' + result.code + '_' + new Date().toISOString().slice(0, 10))
       .replace(/[^a-zA-Z0-9_\-]/g, '_');
-    const xlsxName = baseName + '.xlsx';
 
-    // Envia para o servidor local que usa o Excel para converter
-    const response = await fetch('/api/excel-to-pdf', {
-      method : 'POST',
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        'X-Filename'  : encodeURIComponent(xlsxName),
-      },
-      body: xlsxBuf,
-    });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${response.status}`);
-    }
-
-    const pdfBlob = await response.blob();
-    triggerDownload(pdfBlob, baseName + '.pdf');
+    doc.save(baseName + '.pdf');
     showToast('PDF gerado com sucesso!');
   } catch (e) {
-    if (e instanceof TypeError && e.message.toLowerCase().includes('fetch')) {
-      showToast('Servidor não encontrado — execute: node server.js', false);
-    } else {
-      showToast('Erro ao gerar PDF: ' + e.message, false);
-    }
+    console.error('[PDF]', e);
+    showToast('Erro ao gerar PDF: ' + e.message, false);
   }
 }
 

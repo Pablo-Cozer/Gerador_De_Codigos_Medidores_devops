@@ -2449,7 +2449,7 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
   const scaleAll   = Math.min(scaleWidth, availH / totalH); // escala para caber tudo em 1 pág
   // Se caber em 1 pág não reduz a largura em mais de 40% → usa scaleAll (1 página)
   // Caso contrário prioriza largura e permite múltiplas páginas
-  const scale = (scaleAll / scaleWidth >= 0.60) ? scaleAll : scaleWidth;
+  const scale = scaleAll;
 
   // ── 5. Posições X ──────────────────────────────────────────────────
   const colX = [MARGIN];

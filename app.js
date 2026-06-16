@@ -937,6 +937,28 @@ function resolveOptions(step) {
   return step.options || [];
 }
 
+
+
+function getPdfRenderRange(ws) {
+  const sheetName = ws.name || '';
+
+  if (sheetName.toLowerCase().includes('proposta')) {
+    return {
+      maxRow: 45,
+      colCount: 9,
+    };
+  }
+
+  return {
+    maxRow: xlsxLastUsedRow(ws),
+    colCount: xlsxLastUsedCol(ws),
+  };
+}
+
+
+
+
+
 function makeOptionsGrid(step, opts, fColor) {
   const details = PARAM_DETAILS[currentFamilyKey]?.[step.id] || {};
   const grid = el('div', { class: 'options-grid' });
@@ -1857,7 +1879,7 @@ function setupConditionsListeners() {
 
   // Excel / PDF / Folha buttons
   document.getElementById('btn-excel')?.addEventListener('click', generateExcel);
-  document.getElementById('btn-pdf')?.addEventListener('click',   generatePDF);
+  document.getElementById('btn-pdf')?.addEventListener('click', generatePDF);
   document.getElementById('btn-sheet')?.addEventListener('click', generateSummarySheet);
 
   // Save spec button
@@ -2325,22 +2347,93 @@ function xlsxBuildCellStyle(cell, mergeInfo, ws, rowNumber, colNumber) {
   return s;
 }
 
+
+function gerarPdfPropostaManualAPartirDoWorksheet(ws, workbook, nomeArquivo) {
+
+  const dados = extrairDadosPropostaDoWorksheet(ws);
+
+  return gerarPdfPropostaManual({
+    header: dados.header,
+    items: dados.items,
+    totais: dados.totais,
+    nomeArquivo
+  });
+}
+
+
+
+
 function xlsxCellText(cell) {
-  // cell.text já retorna o valor formatado para a maioria dos casos (string, número, data)
-  let val = cell.text;
-  if (typeof val === 'string' && val !== '') return val;
+  if (!cell) return '';
 
   const v = cell.value;
+
+  // Primeiro trata null/undefined.
+  // Não acesse cell.text antes disso.
   if (v === null || v === undefined) return '';
+
+  // Agora sim tenta cell.text com segurança
+  try {
+    const val = cell.text;
+    if (typeof val === 'string' && val !== '') return val;
+  } catch (e) {
+    // Se o ExcelJS quebrar ao acessar cell.text, segue pelo cell.value
+  }
+
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number') return String(v);
+  if (typeof v === 'boolean') return v ? 'Sim' : 'Não';
+
+  if (v instanceof Date) {
+    return v.toLocaleDateString('pt-BR');
+  }
+
   if (typeof v === 'object') {
     // Célula com rich text
-    if (v.richText) return v.richText.map(rt => rt.text || '').join('');
+    if (Array.isArray(v.richText)) {
+      return v.richText.map(rt => rt.text || '').join('');
+    }
+
     // Célula com fórmula — usa o resultado cacheado
-    if (v.result !== undefined && v.result !== null) return String(v.result);
+    if (v.result !== undefined && v.result !== null) {
+      const r = v.result;
+
+      if (r instanceof Date) {
+        return r.toLocaleDateString('pt-BR');
+      }
+
+      if (typeof r === 'object') {
+        return (
+          r.text ||
+          r.label ||
+          r.name ||
+          r.description ||
+          r.descricao ||
+          r.codigo ||
+          r.code ||
+          ''
+        );
+      }
+
+      return String(r);
+    }
+
     // Hyperlink
-    if (v.text) return typeof v.text === 'string' ? v.text : '';
-    return '';
+    if (v.text) {
+      return typeof v.text === 'string' ? v.text : String(v.text);
+    }
+
+    return (
+      v.label ||
+      v.name ||
+      v.description ||
+      v.descricao ||
+      v.codigo ||
+      v.code ||
+      ''
+    );
   }
+
   return String(v);
 }
 
@@ -2418,11 +2511,548 @@ function xlsxLastUsedRow(ws) {
   return last;
 }
 
+
+async function gerarPdfDocumento(tipoDocumento, dados) {
+  if (tipoDocumento === 'folha_dados') {
+    return gerarPdfPorExcelWorksheet(dados);
+  }
+
+  if (tipoDocumento === 'proposta') {
+    return gerarPdfPropostaManual(dados);
+  }
+
+  throw new Error(`Tipo de documento não suportado: ${tipoDocumento}`);
+}
+
+
+
+function gerarPdfPropostaManual({ header = {}, items = [], totais = {}, nomeArquivo }) {
+  const _jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+
+  if (!_jsPDF) {
+    showToast('Biblioteca jsPDF não carregada.', false);
+    return;
+  }
+
+  const doc = new _jsPDF({
+    unit: 'mm',
+    format: 'a4',
+    orientation: 'portrait'
+  });
+
+  const margin = 7;
+  const pageW = doc.internal.pageSize.getWidth();
+
+  let y = 8;
+
+  y = desenharCabecalhoProposta(doc, header, y, margin, pageW);
+  y = desenharDadosClienteProposta(doc, header, y, margin, pageW);
+  y = desenharTextoIntroducaoProposta(doc, y, margin, pageW);
+  y = desenharTabelaItensProposta(doc, items, y, margin, pageW);
+  y = desenharTotaisProposta(doc, totais, items, y, margin, pageW);
+  y = desenharCondicoesProposta(doc, y, margin, pageW);
+  y = desenharAssinaturasProposta(doc, header, y, margin, pageW);
+  desenharRodapeProposta(doc, margin, pageW);
+
+  doc.save(nomeArquivo || 'proposta.pdf');
+}
+
+function desenharCabecalhoProposta(doc, header, y, margin, pageW) {
+  // Logo textual temporário. Depois podemos trocar por imagem.
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18);
+  doc.setTextColor(26, 109, 203);
+  doc.text('aépio', margin, y + 8);
+
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(8);
+  doc.text('MEDIDORES DE GÁS', margin + 2, y + 13);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.text('PROPOSTA PARA FORNECIMENTO DE MEDIDORES DE GÁS', pageW / 2, y + 7, {
+    align: 'center'
+  });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.text('Data da proposta', pageW - margin - 30, y + 3);
+  doc.rect(pageW - margin - 38, y + 5, 38, 6);
+  doc.text(formatDateBR(new Date()), pageW - margin - 19, y + 9, {
+    align: 'center'
+  });
+
+  y += 18;
+  doc.setDrawColor(0, 0, 0);
+  doc.line(margin, y, pageW - margin, y);
+
+  return y + 3;
+}
+
+function desenharDadosClienteProposta(doc, header, y, margin, pageW) {
+  const tableW = pageW - margin * 2;
+  const leftW = tableW * 0.62;
+  const rightW = tableW - leftW;
+  const rowH = 5;
+
+  const x1 = margin;
+  const x2 = margin + leftW;
+
+  doc.setFontSize(6.5);
+  doc.setFont('helvetica', 'bold');
+
+  const rows = [
+    ['Proposta Nº:', safeText(header.propostaNumero || '')],
+    ['Cliente:', safeText(header.cliente || '')],
+    ['CNPJ:', safeText(header.cnpj || '')],
+    ['Ins. Esta.', safeText(header.inscricaoEstadual || '')],
+    ['E-mail:', safeText(header.email || '')],
+    ['Telefone:', safeText(header.telefone || '')],
+    ['Destino da Compra:', safeText(header.destinoCompra || '')],
+  ];
+
+  const rightRows = [
+    ['OC do Cliente:', safeText(header.ocCliente || '')],
+    ['Endereço:', safeText(header.endereco || '')],
+    ['Cidade:', safeText(header.cidade || '')],
+    ['Estado:', safeText(header.estado || '')],
+    ['CEP:', safeText(header.cep || '')],
+    ['Celular:', safeText(header.celular || '')],
+    ['Contribuinte:', safeText(header.contribuinte || '')],
+  ];
+
+  for (let i = 0; i < rows.length; i++) {
+    const yy = y + i * rowH;
+
+    doc.rect(x1, yy, leftW, rowH);
+    doc.rect(x2, yy, rightW, rowH);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text(rows[i][0], x1 + 2, yy + 4);
+    doc.text(rightRows[i][0], x2 + 2, yy + 4);
+
+    doc.setFont('helvetica', 'normal');
+
+    const leftValue = doc.splitTextToSize(rows[i][1], leftW - 32)[0] || '';
+    const rightValue = doc.splitTextToSize(rightRows[i][1], rightW - 32)[0] || '';
+
+    doc.text(leftValue, x1 + 28, yy + 4);
+    doc.text(rightValue, x2 + 28, yy + 4);
+  }
+
+  return y + rows.length * rowH + 6;
+}
+
+function desenharTextoIntroducaoProposta(doc, y, margin, pageW) {
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+
+  const txt1 =
+    'De acordo com a sua solicitação, informamos abaixo os preços, descrição dos materiais a serem adquiridos e condições de fornecimento.';
+
+  const txt2 =
+    'Alertamos que o conteúdo da presente proposta é confidencial e direcionado única e exclusivamente ao cliente acima descriminado, sendo vedada a divulgação, publicação e demais usos sem a devida autorização das partes.';
+
+  const txt3 =
+    'Para aprovação, favor retornar essa proposta assinada no campo de acordo.';
+
+  const w = pageW - margin * 2;
+
+  let lines = doc.splitTextToSize(txt1, w);
+  doc.text(lines, margin, y);
+  y += lines.length * 3.2 + 2;
+
+  lines = doc.splitTextToSize(txt2, w);
+  doc.text(lines, margin, y);
+  y += lines.length * 3.2 + 2;
+
+  lines = doc.splitTextToSize(txt3, w);
+  doc.text(lines, margin, y);
+  y += lines.length * 3.2 + 2;
+
+  return y;
+}
+
+function desenharTabelaItensProposta(doc, items, y, margin, pageW) {
+  const tableW = pageW - margin * 2;
+  const rowH = 7;
+
+  const widths = [8, 25, 58, 10, 21, 10, 20, 22, 16];
+  const headers = ['Item', 'Código', 'Descrição do Medidor', 'Qtd.', 'Preço Unit.', '% IPI', 'IPI Unit.', 'R$ Total', 'Prazo'];
+
+  let x = margin;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.3);
+
+  for (let i = 0; i < headers.length; i++) {
+    doc.rect(x, y, widths[i], rowH);
+
+    const headerLines = doc.splitTextToSize(headers[i], widths[i] - 2);
+    doc.text(headerLines, x + widths[i] / 2, y + 3.2, {
+      align: 'center'
+    });
+
+    x += widths[i];
+  }
+
+  y += rowH;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.2);
+
+  if (!items.length) {
+    doc.rect(margin, y, tableW, rowH);
+    doc.text('Nenhum item encontrado.', margin + 2, y + 4.5);
+    return y + rowH + 3;
+  }
+
+  items.forEach((item, idx) => {
+    const values = [
+      safeText(item.item || idx + 1),
+      safeText(item.codigo),
+      safeText(item.descricao),
+      safeText(item.quantidade),
+      formatMoneyMaybe(item.precoUnitario),
+      safeText(item.ipi),
+      formatMoneyMaybe(item.ipiValor),
+      formatMoneyMaybe(item.total),
+      safeText(item.prazo)
+    ];
+
+    const descLines = doc.splitTextToSize(values[2], widths[2] - 3);
+    const itemRowH = Math.max(rowH, descLines.length * 3.2 + 3.5);
+
+    x = margin;
+
+    for (let i = 0; i < widths.length; i++) {
+      doc.rect(x, y, widths[i], itemRowH);
+
+      if (i === 2) {
+        doc.text(descLines, x + 1.5, y + 4.3);
+      } else {
+        const clipped = doc.splitTextToSize(values[i], widths[i] - 2)[0] || '';
+        doc.text(clipped, x + widths[i] / 2, y + 4.5, {
+          align: 'center'
+        });
+      }
+
+      x += widths[i];
+    }
+
+    y += itemRowH;
+  });
+
+  return y + 3;
+}
+
+function desenharTotaisProposta(doc, totais, items, y, margin, pageW) {
+  const tableW = pageW - margin * 2;
+
+  const totalIpi = totais.ipi || calcularTotalCampo(items, 'ipiValor');
+  const totalProposta = totais.proposta || calcularTotalCampo(items, 'total');
+
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+
+  doc.rect(margin, y, 70, 8);
+  doc.text('Cobrança de frete:', margin + 35, y + 5, { align: 'center' });
+
+  doc.rect(pageW - margin - 70, y, 35, 8);
+  doc.rect(pageW - margin - 35, y, 35, 8);
+
+  doc.text('Valor total do IPI', pageW - margin - 52.5, y + 3.5, { align: 'center' });
+  doc.text('Valor total da proposta', pageW - margin - 17.5, y + 3.5, { align: 'center' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.text(formatMoneyMaybe(totalIpi), pageW - margin - 52.5, y + 6.5, { align: 'center' });
+  doc.text(formatMoneyMaybe(totalProposta), pageW - margin - 17.5, y + 6.5, { align: 'center' });
+
+  return y + 14;
+}
+
+function desenharCondicoesProposta(doc, y, margin, pageW) {
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.text('Condições de fornecimento e observações', margin, y);
+  y += 6;
+
+  doc.setFontSize(7.2);
+
+  const blocos = [
+    ['1. Impostos', 'IPI não incluso no Preço Unitário e discriminado conforme proposta acima.\nICMS incluso.'],
+    ['2. Especificações', 'L = Distância entre Faces em mm'],
+    ['3. Garantia', 'Os medidores de gás da marca Aépio possuem garantia contra defeitos de fabricação pelo prazo de 2 (dois) anos após a emissão da nota fiscal, conforme termo de garantia.'],
+    ['4. Frete', 'Cobrança: CIF'],
+    ['5. Validade da proposta', 'Esta proposta é válida por 30 dias a contar da data de emissão da mesma.'],
+    ['6. Condição de Pagamento - Pendente de Liberação de crédito', 'Entrada:     Prazo: 28/56']
+  ];
+
+  const w = pageW - margin * 2;
+
+  blocos.forEach(([titulo, texto]) => {
+    doc.setFont('helvetica', 'bold');
+    doc.text(titulo, margin, y);
+    y += 3.5;
+
+    doc.setFont('helvetica', 'normal');
+    const lines = doc.splitTextToSize(texto, w);
+    doc.text(lines, margin, y);
+    y += lines.length * 3.2 + 3;
+  });
+
+  return y;
+}
+
+function desenharAssinaturasProposta(doc, header, y, margin, pageW) {
+  if (y < 178) y = 178;
+  if (y > 215) y = 215;
+
+  doc.setFontSize(6.8);
+  doc.setFont('helvetica', 'normal');
+
+  doc.text('Atenciosamente,', margin, y);
+  y += 12;
+
+  doc.line(margin, y, margin + 65, y);
+  doc.line(pageW - margin - 75, y, pageW - margin, y);
+
+  y += 4;
+
+  doc.text('Felipe Scozziero', margin + 32.5, y, { align: 'center' });
+  doc.text(safeText(header.cliente), pageW - margin - 37.5, y, { align: 'center' });
+
+  y += 4;
+
+  doc.text('Aépio Medidores de Gás', margin + 32.5, y, { align: 'center' });
+
+  return y + 8;
+}
+
+function desenharRodapeProposta(doc, margin, pageW) {
+  const y = 279;
+  const w = pageW - margin * 2;
+
+  doc.rect(margin, y - 8, w, 14);
+
+  doc.setFontSize(6.5);
+  doc.setFont('helvetica', 'normal');
+
+  doc.text('Dados da empresa: AGAU INDÚSTRIA DE EQUIPAMENTOS PARA ÁGUA LTDA', pageW / 2, y - 3, {
+    align: 'center'
+  });
+  doc.text('Rua Cecília F. Barcelos, 60 Gravataí-RS CEP. 94035-185', pageW / 2, y, {
+    align: 'center'
+  });
+  doc.text('Fone/fax: 51-3208-3030  email: agau@agau.com.br', pageW / 2, y + 3, {
+    align: 'center'
+  });
+  doc.text('CNPJ 02.728.291/0001-64  IE 057/0169879', pageW / 2, y + 6, {
+    align: 'center'
+  });
+}
+
+function parseMoneyNumber(value) {
+  if (typeof value === 'number') return value;
+
+  const txtOriginal = safeText(value).trim();
+
+  if (!txtOriginal) return 0;
+
+  // Remove R$, espaços etc.
+  let txt = txtOriginal.replace(/[^\d,.-]/g, '');
+
+  // Caso venha no formato brasileiro: 9.597,31
+  if (txt.includes(',') && txt.includes('.')) {
+    txt = txt.replace(/\./g, '').replace(',', '.');
+    const n = Number(txt);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  // Caso venha no formato brasileiro simples: 9597,31
+  if (txt.includes(',') && !txt.includes('.')) {
+    txt = txt.replace(',', '.');
+    const n = Number(txt);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  // Caso venha do Excel/JS: 9597.31
+  const n = Number(txt);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatMoneyMaybe(value) {
+  const txt = safeText(value).trim();
+
+  if (!txt) return '';
+
+  const n = parseMoneyNumber(value);
+
+  if (!Number.isFinite(n)) return txt;
+
+  return n.toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL'
+  });
+}
+
+function calcularTotalCampo(items, campo) {
+  return items.reduce((acc, item) => acc + parseMoneyNumber(item[campo]), 0);
+}
+
+
+
+function safeText(value) {
+  if (value === null || value === undefined) return '';
+
+  if (typeof value === 'string') {
+    return value === '[object Object]' ? '' : value;
+  }
+
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'boolean') return value ? 'Sim' : 'Não';
+
+  if (value instanceof Date) {
+    return value.toLocaleDateString('pt-BR');
+  }
+
+  if (typeof value === 'object') {
+    if (Array.isArray(value.richText)) {
+      return value.richText.map(rt => rt.text || '').join('');
+    }
+
+    if (value.result !== undefined && value.result !== null) {
+      return safeText(value.result);
+    }
+
+    if (value.text) return safeText(value.text);
+
+    return (
+      value.label ||
+      value.name ||
+      value.description ||
+      value.descricao ||
+      value.codigo ||
+      value.code ||
+      value.value ||
+      ''
+    );
+  }
+
+  const txt = String(value);
+  return txt === '[object Object]' ? '' : txt;
+}
+
+function localizarLinhaCabecalhoItens(ws) {
+  const maxRow = xlsxLastUsedRow(ws);
+  const maxCol = xlsxLastUsedCol(ws);
+
+  for (let r = 1; r <= maxRow; r++) {
+    const linha = [];
+
+    for (let c = 1; c <= maxCol; c++) {
+      linha.push(String(xlsxCellText(ws.getRow(r).getCell(c)) || '').toUpperCase());
+    }
+
+    const texto = linha.join(' ');
+
+    if (
+      texto.includes('ITEM') &&
+      texto.includes('CÓDIGO') &&
+      texto.includes('DESCRIÇÃO')
+    ) {
+      return r;
+    }
+  }
+
+  return null;
+}
+
+
+function extrairItensProposta(ws) {
+  const items = [];
+  const headerRow = localizarLinhaCabecalhoItens(ws);
+
+  if (!headerRow) return items;
+
+  const maxRow = xlsxLastUsedRow(ws);
+
+  for (let r = headerRow + 1; r <= maxRow; r++) {
+    const row = ws.getRow(r);
+
+    const item = safeText(xlsxCellText(row.getCell(1))).trim();
+
+    // Para quando chegar em outra seção
+    const linhaToda = [];
+    for (let c = 1; c <= 12; c++) {
+      linhaToda.push(safeText(xlsxCellText(row.getCell(c))).trim());
+    }
+
+    const linhaUpper = linhaToda.join(' ').toUpperCase();
+
+    if (
+      linhaUpper.includes('COBRANÇA DE FRETE') ||
+      linhaUpper.includes('CONDIÇÕES DE FORNECIMENTO') ||
+      linhaUpper.includes('VALOR TOTAL')
+    ) {
+      break;
+    }
+
+    if (!/^\d+$/.test(item)) continue;
+
+    items.push({
+      item,
+      codigo: linhaToda[1] || '',
+      descricao: linhaToda[2] || '',
+      quantidade: linhaToda[3] || '',
+      precoUnitario: linhaToda[4] || '',
+      ipi: linhaToda[5] || '',
+      ipiValor: linhaToda[6] || '',
+      total: linhaToda[7] || '',
+      prazo: linhaToda[8] || ''
+    });
+  }
+
+  return items;
+}
+
+
+function formatMoneyBR(value) {
+  const n = Number(value || 0);
+
+  return n.toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL'
+  });
+}
+
+function formatDateBR(value) {
+  if (!value) return '';
+
+  const d = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(d.getTime())) {
+    return safeText(value);
+  }
+
+  return d.toLocaleDateString('pt-BR');
+}
+
+function formatMoneyBR(value) {
+  const n = Number(value || 0);
+
+  return n.toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL'
+  });
+}
+
+
 // Renderiza um worksheet ExcelJS diretamente no jsPDF
 function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
   const CHAR_TO_MM = 1.83;
   const PT_TO_MM   = 0.353;
-  const MARGIN     = 5;
+  const MARGIN     = 4;
 
   // ── 1. Range real de dados (ignora trailing empty rows/cols) ───────
   const maxRow   = xlsxLastUsedRow(ws);
@@ -2445,11 +3075,11 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
   // ── 4. Escala: prioriza preencher a LARGURA total ──────────────────
   const availW     = pageW - 2 * MARGIN;
   const availH     = pageH - 2 * MARGIN;
-  const scaleWidth = availW / totalW;          // escala para preencher largura
-  const scaleAll   = Math.min(scaleWidth, availH / totalH); // escala para caber tudo em 1 pág
-  // Se caber em 1 pág não reduz a largura em mais de 40% → usa scaleAll (1 página)
+
   // Caso contrário prioriza largura e permite múltiplas páginas
-  const scale = scaleAll;
+  const scale = Math.min(availH / (totalH * 0.08), availW / totalW);
+
+  console.log('[PDF]', { totalH, totalW, availH, availW, scale, maxRow });
 
   // ── 5. Posições X ──────────────────────────────────────────────────
   const colX = [MARGIN];
@@ -2602,27 +3232,325 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
           }
         } catch (e) { /* ignora */ }
       } else {
-        // ── Texto normal (horizontal) ──
+
+       // ── Texto normal (horizontal) ──
         let tx = x + pad;
         let tAlign = 'left';
-        if (align.horizontal === 'center') { tx = x + cellW / 2; tAlign = 'center'; }
-        else if (align.horizontal === 'right') { tx = x + cellW - pad; tAlign = 'right'; }
+
+        if (align.horizontal === 'center') {
+          tx = x + cellW / 2;
+          tAlign = 'center';
+        } else if (align.horizontal === 'right') {
+          tx = x + cellW - pad;
+          tAlign = 'right';
+        }
 
         const maxTextW = cellW - 2 * pad;
         const lineH = fontSize * 0.38;
-        const lines = doc.splitTextToSize(text, maxTextW);
+
+        // Só quebra automaticamente se o Excel mandou quebrar.
+        const shouldWrap = align.wrapText === true;
+
+        let lines;
+
+        if (shouldWrap) {
+          lines = String(text)
+            .split(/\r?\n/)
+            .flatMap(part => doc.splitTextToSize(part, maxTextW));
+        } else {
+          // Sem wrapText: preserva apenas quebras manuais.
+          // Não quebra palavra no meio.
+          lines = String(text).split(/\r?\n/);
+        }
+
         const totalTextH = lines.length * lineH;
 
         let ty;
-        if (align.vertical === 'top') ty = y + lineH;
-        else if (align.vertical === 'bottom') ty = y + cellH - totalTextH + lineH * 0.3;
-        else ty = y + (cellH - totalTextH) / 2 + lineH * 0.75;
+        if (align.vertical === 'top') {
+          ty = y + lineH;
+        } else if (align.vertical === 'bottom') {
+          ty = y + cellH - totalTextH + lineH * 0.3;
+        } else {
+          ty = y + (cellH - totalTextH) / 2 + lineH * 0.75;
+        }
 
-        try { doc.text(lines, tx, ty, { align: tAlign }); }
-        catch (e) { /* ignora */ }
+        try {
+          doc.text(lines, tx, ty, { align: tAlign });
+        } catch (e) {
+          /* ignora */
+        }
+
+        // ── 9. Fechamento manual do rodapé "NOTAS / EM ATENDIMENTO" ────────
+        try {
+          const lastPage = renderedPage;
+          if (doc.setPage) doc.setPage(lastPage);
+
+          doc.setDrawColor(0, 0, 0);
+          doc.setLineWidth(0.1);
+
+          let notasRow = null;
+          let atendimentoRow = null;
+
+          // Procura as linhas do rodapé
+          for (let rr = 1; rr <= maxRow; rr++) {
+            const row = ws.getRow(rr);
+
+            for (let cc = 1; cc <= colCount; cc++) {
+              const txt = String(xlsxCellText(row.getCell(cc)) || '').toUpperCase();
+
+              if (txt.includes('NOTAS')) {
+                notasRow = rr;
+              }
+
+              if (txt.includes('EM ATENDIMENTO')) {
+                atendimentoRow = rr;
+              }
+            }
+          }
+
+          // Usa a linha "EM ATENDIMENTO" se existir.
+          // Senão usa a linha "NOTAS".
+          const baseRow = atendimentoRow || notasRow;
+
+          if (baseRow) {
+            const yBase = rowY[baseRow - 1];
+            const hBase = rowHeightsMm[baseRow - 1];
+
+            // Linha logo abaixo do "EM ATENDIMENTO:"
+            // Ajuste fino: aumente para descer, diminua para subir.
+            const yLine = yBase + hBase + 0.5;
+
+            const x1 = MARGIN;
+            const x2 = pageW - MARGIN;
+
+            doc.line(x1, yLine, x2, yLine);
+          }
+        } catch (e) {
+          /* ignora */
+        }
+        
       }
     }
   }
+}
+
+
+function detectarTipoDocumentoPdf(ws, nomeArquivo = '') {
+  const nome = String(nomeArquivo || '').toLowerCase();
+
+  if (nome.includes('proposta')) {
+    return 'proposta';
+  }
+
+  for (let r = 1; r <= Math.min(15, xlsxLastUsedRow(ws)); r++) {
+    const row = ws.getRow(r);
+
+    for (let c = 1; c <= Math.min(15, xlsxLastUsedCol(ws)); c++) {
+      const txt = String(xlsxCellText(row.getCell(c)) || '').toUpperCase();
+
+      if (
+        txt.includes('PROPOSTA PARA') ||
+        txt.includes('FORNECIMENTO DE MEDIDORES') ||
+        txt.includes('PROPOSTA Nº') ||
+        txt.includes('PROPOSTA N')
+      ) {
+        return 'proposta';
+      }
+
+      if (txt.includes('FOLHA DE DADOS')) {
+        return 'folha_dados';
+      }
+    }
+  }
+
+  return 'folha_dados';
+}
+
+function isLabelText(txt) {
+  const t = String(txt || '').trim().toUpperCase();
+
+  return [
+    'CLIENTE:',
+    'CNPJ:',
+    'INS. ESTA.',
+    'E-MAIL:',
+    'EMAIL:',
+    'TELEFONE:',
+    'ENDEREÇO:',
+    'ENDERECO:',
+    'CIDADE:',
+    'ESTADO:',
+    'CEP:',
+    'CELULAR:',
+    'DESTINO DA COMPRA:',
+    'CONTRIBUINTE:',
+    'OC DO CLIENTE:',
+    'PROPOSTA Nº:',
+    'PROPOSTA N°:'
+  ].some(label => t === label || t.startsWith(label));
+}
+
+function findValueRightOfLabel(ws, label, maxRows = 30, maxCols = 20) {
+  const labelUpper = label.toUpperCase();
+
+  for (let r = 1; r <= maxRows; r++) {
+    const row = ws.getRow(r);
+
+    for (let c = 1; c <= maxCols; c++) {
+      const txt = safeText(xlsxCellText(row.getCell(c))).trim();
+      const txtUpper = txt.toUpperCase();
+
+      if (txtUpper === labelUpper || txtUpper.startsWith(labelUpper)) {
+        // Caso o valor esteja na mesma célula: "Cliente: Fulano"
+        const sameCellValue = txt.replace(new RegExp('^' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), '').trim();
+        if (sameCellValue && !isLabelText(sameCellValue)) {
+          return sameCellValue;
+        }
+
+        // Procura à direita
+        for (let nextC = c + 1; nextC <= maxCols; nextC++) {
+          const value = safeText(xlsxCellText(row.getCell(nextC))).trim();
+
+          if (!value) continue;
+          if (isLabelText(value)) continue;
+
+          return value;
+        }
+      }
+    }
+  }
+
+  return '';
+}
+
+
+function extrairDadosPropostaDoWorksheet(ws) {
+  const header = {
+    dataProposta: formatDateBR(getCellText(ws, 3, 30)),
+
+    propostaNumero: getCellText(ws, 5, 8),
+    ocCliente: getCellText(ws, 5, 29),
+
+    cliente: getCellText(ws, 6, 5),
+    endereco: getCellText(ws, 6, 24),
+
+    cnpj: getCellText(ws, 7, 5),
+    cidade: getCellText(ws, 7, 24),
+
+    inscricaoEstadual: getCellText(ws, 8, 5),
+    contribuinte: getCellText(ws, 8, 15),
+    estado: getCellText(ws, 8, 24),
+
+    email: getCellText(ws, 9, 5),
+    cep: getCellText(ws, 9, 24),
+
+    telefone: getCellText(ws, 10, 5),
+    celular: getCellText(ws, 10, 24),
+
+    destinoCompra: getCellText(ws, 11, 24),
+    contato: getCellText(ws, 13, 7),
+
+    aprovadoPor: getCellText(ws, 38, 21),
+    prazoPagamento: getCellText(ws, 45, 22),
+    clienteAssinatura: getCellText(ws, 52, 18)
+  };
+
+  const items = extrairItensPropostaPorPosicao(ws);
+
+  const totais = {
+    totalIpi: getCellText(ws, 23, 23),
+    totalProposta: getCellText(ws, 23, 29),
+    frete: getCellText(ws, 38, 10) || 'CIF'
+  };
+
+  return { header, items, totais };
+}
+
+
+function extrairItensPropostaPorPosicao(ws) {
+  const items = [];
+
+  for (let r = 20; r <= xlsxLastUsedRow(ws); r++) {
+    const item = getCellText(ws, r, 2);
+
+    if (!/^\d+$/.test(item)) continue;
+
+    items.push({
+      item,
+
+      // No debug, código e descrição ainda não aparecem como texto.
+      // Deixa fallback por enquanto.
+      codigo: getCodigoItemProposta(ws, r),
+      descricao: getDescricaoItemProposta(ws, r),
+
+      quantidade: getCellText(ws, r, 16),
+      precoUnitario: getCellText(ws, r, 19),
+      ipi: getCellText(ws, r, 23),
+      ipiValor: getCellText(ws, r, 25),
+      total: getCellText(ws, r, 28),
+      prazo: getCellText(ws, r, 33)
+    });
+  }
+
+  return items;
+}
+
+
+function getDescricaoItemProposta(ws, rowNumber) {
+  for (let c = 6; c <= 15; c++) {
+    const txt = getCellText(ws, rowNumber, c);
+
+    if (!txt) continue;
+    if (txt === '[object Object]') continue;
+    if (/^\d+([.,]\d+)?$/.test(txt)) continue;
+
+    return txt;
+  }
+
+  return '';
+}
+
+function getCodigoItemProposta(ws, rowNumber) {
+  for (let c = 3; c <= 5; c++) {
+    const txt = getCellText(ws, rowNumber, c);
+    if (txt && txt !== '[object Object]') return txt;
+  }
+
+  return '';
+}
+
+function getCellText(ws, row, col) {
+  return safeText(xlsxCellText(ws.getRow(row).getCell(col))).trim();
+}
+
+
+
+function getFirstTextAfterLabelInRow(ws, rowNumber, label) {
+  const row = ws.getRow(rowNumber);
+  const maxCol = xlsxLastUsedCol(ws);
+  const labelUpper = String(label || '').trim().toUpperCase();
+
+  let found = false;
+
+  for (let c = 1; c <= maxCol; c++) {
+    const txt = safeText(xlsxCellText(row.getCell(c))).trim();
+    const upper = txt.toUpperCase();
+
+    if (!found && upper === labelUpper) {
+      found = true;
+      continue;
+    }
+
+    if (found) {
+      if (!txt) continue;
+      if (isLabelText(txt)) continue;
+      if (upper === labelUpper) continue;
+
+      return txt;
+    }
+  }
+
+  return '';
 }
 
 async function generatePDF() {
@@ -2638,16 +3566,37 @@ async function generatePDF() {
   }
 
   try {
-    const doc = new _jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-    if (typeof registerTreviaFont === 'function') registerTreviaFont(doc);
+    const doc = new _jsPDF({
+      unit: 'mm',
+      format: 'a4',
+      orientation: 'portrait'
+    });
 
-    const ws = result.workbook.worksheets[0];
-    xlsxWorksheetToPdf(ws, result.workbook, doc, 210, 297);
+    if (typeof registerTreviaFont === 'function') {
+      registerTreviaFont(doc);
+    }
 
-    const baseName = ('FolhaDados_' + result.code + '_' + new Date().toISOString().slice(0, 10))
-      .replace(/[^a-zA-Z0-9_\-]/g, '_');
+    const workbook = result.workbook;
+    const ws = workbook.worksheets[0];
 
-    doc.save(baseName + '.pdf');
+    const nomeArquivo = (
+      'FolhaDados_' + result.code + '_' + new Date().toISOString().slice(0, 10) + '.pdf'
+    ).replace(/[^a-zA-Z0-9_\-.]/g, '_');
+
+    const tipoDocumento = detectarTipoDocumentoPdf(ws, nomeArquivo);
+
+    if (tipoDocumento === 'proposta') {
+      gerarPdfPropostaManualAPartirDoWorksheet(ws, workbook, nomeArquivo);
+      showToast('PDF da proposta gerado com sucesso!');
+      return;
+    }
+
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+
+    xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH);
+
+    doc.save(nomeArquivo);
     showToast('PDF gerado com sucesso!');
   } catch (e) {
     console.error('[PDF]', e);
@@ -4613,7 +5562,7 @@ function pdfDrawHero(ctx, y) {
     try {
       const ip = doc.getImageProperties(imgDataURI);
       const maxW = frameW - 10, maxH = frameH - 10;
-      const scale = Math.min(maxW / ip.width, maxH / ip.height);
+      const scale = availW / totalW;
       const iw = ip.width * scale, ih = ip.height * scale;
       doc.addImage(imgDataURI,
         frameX + (frameW - iw) / 2,

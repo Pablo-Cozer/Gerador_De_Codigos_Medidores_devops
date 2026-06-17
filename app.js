@@ -405,7 +405,7 @@ function addToOrder(qty, tag) {
 }
 function removeOrderItem(id) { orderItems = orderItems.filter(i => i.id !== id); saveOrderItems(); }
 async function clearOrder() {
-  try { await idbDeleteMany(orderAtts.map(a => a.id)); } catch (e) { console.warn('IDB clearOrder:', e); }
+  try { await idbDeleteMany(orderAtts.map(a => a.id)); } catch (e) {}
   orderAtts   = []; saveOrderAtts();
   orderItems  = []; saveOrderItems();
   orderHeader = {}; saveOrderHeader();
@@ -1484,9 +1484,6 @@ function hasActiveConfig() {
 }
 
 function goToFamily(key) {
-  if (key !== currentFamilyKey && hasActiveConfig()) {
-    if (!confirm('Trocar de família vai apagar a configuração atual. Deseja continuar?')) return;
-  }
   currentFamilyKey = key;
   currentFamily = FAMILIES[key];
   paramValues = {};
@@ -3079,7 +3076,6 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
   // Caso contrário prioriza largura e permite múltiplas páginas
   const scale = Math.min(availH / (totalH * 0.08), availW / totalW);
 
-  console.log('[PDF]', { totalH, totalW, availH, availW, scale, maxRow });
 
   // ── 5. Posições X ──────────────────────────────────────────────────
   const colX = [MARGIN];
@@ -3116,9 +3112,22 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
     const b64 = window.btoa(binary);
     const r = (imgDesc.range.tl.nativeRow ?? (imgDesc.range.tl.row || 0)) + 1;
     const c = (imgDesc.range.tl.nativeCol ?? (imgDesc.range.tl.col || 0)) + 1;
-    imageMap[`${r},${c}`] = {
+
+    const tl = imgDesc.range?.tl;
+    const br = imgDesc.range?.br;
+
+    const r1 = (tl?.nativeRow ?? tl?.row ?? 0) + 1;
+    const c1 = (tl?.nativeCol ?? tl?.col ?? 0) + 1;
+
+    const r2 = br ? (br.nativeRow ?? br.row ?? r1 - 1) + 1 : r1;
+    const c2 = br ? (br.nativeCol ?? br.col ?? c1 - 1) + 1 : c1;
+    imageMap[`${r1},${c1}`] = {
       dataUrl: `data:image/${img.extension || 'png'};base64,${b64}`,
       ext: (img.extension || 'png').toUpperCase(),
+      r1,
+      c1,
+      r2,
+      c2
     };
   });
 
@@ -3181,9 +3190,50 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
 
       // Imagem
       const imgInfo = imageMap[`${r},${c}`];
+
       if (imgInfo) {
-        try { doc.addImage(imgInfo.dataUrl, imgInfo.ext, x + 0.5, y + 0.5, cellW - 1, cellH - 1, undefined, 'FAST'); }
-        catch (e) { /* ignora */ }
+        try {
+          let imgX = x + 0.5;
+          let imgY = y + 0.5;
+          let imgW = cellW - 1;
+          let imgH = cellH - 1;
+
+          if (imgInfo.r2 && imgInfo.c2) {
+            const startCol = imgInfo.c1;
+            const endCol = imgInfo.c2;
+            const startRow = imgInfo.r1;
+            const endRow = imgInfo.r2;
+
+            imgX = colX[startCol - 1] + 0.5;
+            imgY = rowY[startRow - 1] + 0.5;
+
+            imgW = 0;
+            for (let cc = startCol; cc <= endCol; cc++) {
+              imgW += (colWidthsMm[cc - 1] || 0) * scale;
+            }
+
+            imgH = 0;
+            for (let rr = startRow; rr <= endRow; rr++) {
+              imgH += rowHeightsMm[rr - 1] || 0;
+            }
+
+            imgW -= 1;
+            imgH -= 1;
+          }
+
+          doc.addImage(
+            imgInfo.dataUrl,
+            imgInfo.ext,
+            imgX,
+            imgY,
+            Math.max(1, imgW),
+            Math.max(1, imgH),
+            undefined,
+            'FAST'
+          );
+        } catch (e) {
+  
+        }
       }
 
       // Texto
@@ -3559,6 +3609,8 @@ async function generatePDF() {
   const result = await buildExcelWorksheet();
   if (!result) return;
 
+  const workbook = result.workbook;
+
   const _jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
   if (!_jsPDF) {
     showToast('Biblioteca jsPDF não carregada.', false);
@@ -3576,17 +3628,20 @@ async function generatePDF() {
       registerTreviaFont(doc);
     }
 
-    const workbook = result.workbook;
-    const ws = workbook.worksheets[0];
+    const tipoDocumento = getTipoDocumentoAtual(result, workbook);
 
     const nomeArquivo = (
-      'FolhaDados_' + result.code + '_' + new Date().toISOString().slice(0, 10) + '.pdf'
+      (tipoDocumento === 'proposta' ? 'Proposta_' : 'FolhaDados_') +
+      result.code +
+      '_' +
+      new Date().toISOString().slice(0, 10) +
+      '.pdf'
     ).replace(/[^a-zA-Z0-9_\-.]/g, '_');
 
-    const tipoDocumento = detectarTipoDocumentoPdf(ws, nomeArquivo);
+    const ws = getWorksheetParaPdf(workbook, tipoDocumento);
 
     if (tipoDocumento === 'proposta') {
-      gerarPdfPropostaManualAPartirDoWorksheet(ws, workbook, nomeArquivo);
+      gerarPdfPropostaManualAPartirDoWorksheet(ws, workbook, nomeArquivo, result);
       showToast('PDF da proposta gerado com sucesso!');
       return;
     }
@@ -3599,9 +3654,142 @@ async function generatePDF() {
     doc.save(nomeArquivo);
     showToast('PDF gerado com sucesso!');
   } catch (e) {
-    console.error('[PDF]', e);
     showToast('Erro ao gerar PDF: ' + e.message, false);
   }
+}
+
+
+function getWorksheetParaPdf(workbook) {
+  if (!workbook || !Array.isArray(workbook.worksheets)) {
+    throw new Error('Workbook inválido ou sem worksheets.');
+  }
+
+  // 1. Se existir folha de dados, usa ela para PDF de folha de dados
+  const folhaDados = workbook.worksheets.find(ws => {
+    const name = String(ws.name || '').toUpperCase();
+    return name.includes('FOLHA DE DADOS');
+  });
+
+  if (folhaDados) {
+    return folhaDados;
+  }
+
+  // 2. Se existir proposta, usa proposta
+  const proposta = workbook.worksheets.find(ws => {
+    const name = String(ws.name || '').toUpperCase();
+    return name.includes('PROPOSTA');
+  });
+
+  if (proposta) {
+    return proposta;
+  }
+
+  // 3. Nunca usar Planilha de Cotação como primeira opção
+  const naoAuxiliar = workbook.worksheets.find(ws => {
+    const name = String(ws.name || '').toUpperCase();
+
+    return ![
+      'PLANILHA DE COTAÇÃO',
+      'CHECK_LIST',
+      'BASE',
+      'ROTARY',
+      'TURBINE'
+    ].some(aux => name.includes(aux));
+  });
+
+  if (naoAuxiliar) {
+    return naoAuxiliar;
+  }
+
+  throw new Error('Nenhuma worksheet válida encontrada para gerar PDF.');
+}
+
+
+function getTipoDocumentoAtual(result, workbook) {
+  // 1. Se algum lugar do código já informar explicitamente, usa isso
+  const tipoExplicito = normalizarTipoDocumento(
+    result.tipoDocumento ||
+    result.tipoPdf ||
+    result.documentoPdf ||
+    result.documentType ||
+    window.tipoDocumentoPdfAtual
+  );
+
+  if (tipoExplicito) return tipoExplicito;
+
+  // 2. Fallback seguro:
+  // Se não souber, assume folha de dados.
+  // Isso evita cair na proposta por engano quando o workbook tem as duas abas.
+  return 'folha_dados';
+}
+
+function normalizarTipoDocumento(tipo) {
+  const t = String(tipo || '').toLowerCase();
+
+  if (t.includes('proposta')) return 'proposta';
+  if (t.includes('folha')) return 'folha_dados';
+  if (t.includes('dados')) return 'folha_dados';
+
+  return '';
+}
+
+
+function getWorksheetParaPdf(workbook, tipoDocumento) {
+  if (!workbook || !Array.isArray(workbook.worksheets) || workbook.worksheets.length === 0) {
+    throw new Error('Workbook inválido ou sem worksheets.');
+  }
+
+  const worksheets = workbook.worksheets;
+
+  // Caso simples: se só tem uma aba, usa ela.
+  // Isso evita erro quando o Excel gerado já veio filtrado.
+  if (worksheets.length === 1) {
+    return worksheets[0];
+  }
+
+  if (tipoDocumento === 'proposta') {
+    const wsProposta = worksheets.find(ws =>
+      String(ws.name || '').toUpperCase().includes('PROPOSTA')
+    );
+
+    if (wsProposta) return wsProposta;
+
+    throw new Error('Aba de proposta não encontrada.');
+  }
+
+  if (tipoDocumento === 'folha_dados') {
+    const wsFolha = worksheets.find(ws => {
+      const name = String(ws.name || '').toUpperCase();
+
+      return (
+        name.includes('FOLHA DE DADOS') ||
+        name.includes('FOLHADADOS') ||
+        name.includes('DADOS IT')
+      );
+    });
+
+    if (wsFolha) return wsFolha;
+
+    // fallback seguro: evita pegar abas auxiliares
+    const wsNaoAuxiliar = worksheets.find(ws => {
+      const name = String(ws.name || '').toUpperCase();
+
+      return !(
+        name.includes('PLANILHA DE COTAÇÃO') ||
+        name.includes('COTACAO') ||
+        name.includes('CHECK_LIST') ||
+        name.includes('BASE') ||
+        name.includes('ROTARY') ||
+        name.includes('TURBINE')
+      );
+    });
+
+    if (wsNaoAuxiliar) {
+      return wsNaoAuxiliar;
+    }
+    throw new Error('Aba FOLHA DE DADOS não encontrada.');
+  }
+  throw new Error('Tipo de documento inválido: ' + tipoDocumento);
 }
 
 // ── Utilitários compartilhados ────────────────────────────────
@@ -5319,24 +5507,32 @@ const FAMILY_IMAGE_KEY = {
   TCF:  'TCF',
   TYL:  'TYL',
   TBQM: 'TBQM',
-  TEC:  'TEC',
+  // TEC:  'TEC',
   TUS:  'TUS',
 };
 
 // Resolve a chave de imagem para a família, suportando seleção dinâmica (ex: 0DM mecânico vs smart)
-function resolveImageKey(familyKey, pv) {
-  if (familyKey === 'ODM') {
-    // DLA: display D (LoRa), E (NB PRE) ou F (NB POS)
-    const isDLA   = pv?.display === 'D' || pv?.display === 'E' || pv?.display === 'F';
-    const isSmart = pv?.tipo === 'S';
-    if (isDLA)   return 'ODM_DLA';
-    if (isSmart) return 'ODM_SMART';
-    return 'ODM_MEC';
+function resolveImageKey(familyKey, paramValues = {}) {
+  const key = String(familyKey || '').toUpperCase();
+
+  const aliases = {
+    TEC: 'TEF',
+    TEFPC: 'TEF',
+    TEF: 'TEF',
+    TCF: 'TCF',
+    TYL: 'TYL',
+    TUS: 'TUS'
+  };
+
+  if (key === 'TBQM') {
+    const cor = String(paramValues.cor || '').toLowerCase();
+
+    if (cor.includes('amarelo')) return 'TBQM_AMARELO';
+
+    return 'TBQM';
   }
-  if (familyKey === 'TBQM') {
-    return (pv?.cor === '2' || pv?.cor === '3') ? 'TBQM' : 'TBQM_AMARELO';
-  }
-  return FAMILY_IMAGE_KEY[familyKey] || '';
+
+  return aliases[key] || key;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -5560,14 +5756,24 @@ function pdfDrawHero(ctx, y) {
 
   if (imgDataURI) {
     try {
+
       const ip = doc.getImageProperties(imgDataURI);
-      const maxW = frameW - 10, maxH = frameH - 10;
-      const scale = availW / totalW;
-      const iw = ip.width * scale, ih = ip.height * scale;
-      doc.addImage(imgDataURI,
+      const maxW = frameW - 10;
+      const maxH = frameH - 10;
+      // calcula scale mantendo proporção
+      const scaleW = maxW / ip.width;
+      const scaleH = maxH / ip.height;
+      const imgScale = Math.min(scaleW, scaleH);   // ← era "availW / totalW", variáveis inexistentes
+      const iw = ip.width  * imgScale;
+      const ih = ip.height * imgScale;
+      doc.addImage(
+        imgDataURI,
         frameX + (frameW - iw) / 2,
         frameY + (frameH - ih) / 2,
-        iw, ih);
+        iw, ih
+      );
+
+
     } catch(e) {}
   } else {
     // Fallback sem ícone Unicode (jsPDF/Helvetica não suporta) — usa linhas decorativas
@@ -5838,7 +6044,6 @@ function generateSummarySheet() {
   showToast('PDF salvo com sucesso!');
 
   } catch (e) {
-    console.error('[PDF] Erro ao gerar PDF:', e);
     showToast('Erro ao gerar PDF: ' + e.message, false);
   }
 }
@@ -6138,7 +6343,6 @@ async function generateOrderSummaryPDF() {
     showToast(`Resumo gerado — ${orderItems.length} instrumento${orderItems.length !== 1 ? 's' : ''} na cotação`);
 
   } catch (e) {
-    console.error('[PDF Pedido]', e);
     showToast('Erro ao gerar resumo: ' + e.message, false);
   }
 }

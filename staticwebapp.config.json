@@ -1,4 +1,15 @@
 {
+  "auth": {
+    "identityProviders": {
+      "azureActiveDirectory": {
+        "registration": {
+          "openIdIssuer": "https://login.microsoftonline.com/f8da3c28-e2e8-4490-96d2-b672f36ee1b3/v2.0",
+          "clientIdSettingName": "81c175e4-3510-48a5-a1ef-cb50a19b0511",
+          "clientSecretSettingName": "UnW8Q~KDO6DPNW5gZnIjZxDWXI56r~lYWXxA1b70" 
+        }
+      }
+    }
+  },
   "routes": [
     {
       "route": "/login",
@@ -30,5 +41,4 @@
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "Content-Security-Policy": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; frame-ancestors 'none';"
   }
-  
 }

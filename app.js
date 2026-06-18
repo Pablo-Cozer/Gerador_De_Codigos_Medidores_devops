@@ -1896,16 +1896,21 @@ function setupDropdownListeners() {
       e.stopPropagation();
       const dd = btn.closest('.action-dropdown');
       const wasOpen = dd.classList.contains('open');
-      document.querySelectorAll('.action-dropdown.open').forEach(d => d.classList.remove('open'));
-      if (!wasOpen) dd.classList.add('open');
-    });
-  });
-  document.addEventListener('click', () => {
-    document.querySelectorAll('.action-dropdown.open').forEach(d => d.classList.remove('open'));
-  });
-  document.querySelectorAll('.dropdown-menu').forEach(menu => {
-    menu.addEventListener('click', () => {
-      setTimeout(() => menu.closest('.action-dropdown')?.classList.remove('open'), 50);
+      document.querySelectorAll('.action-dropdown.open').forEach(d => {
+        d.classList.remove('open');
+        d.classList.remove('drop-up');
+      });
+      if (!wasOpen) {
+        // Verifica se há espaço suficiente abaixo; senão, abre para cima
+        const menu = dd.querySelector('.dropdown-menu');
+        const rect = dd.getBoundingClientRect();
+        const menuHeight = menu.scrollHeight || 200; // estimativa antes de medir
+        const spaceBelow = window.innerHeight - rect.bottom;
+        if (spaceBelow < menuHeight + 16) {
+          dd.classList.add('drop-up');
+        }
+        dd.classList.add('open');
+      }
     });
   });
 }
@@ -3070,12 +3075,9 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
   const totalH = rowHeightsRaw.reduce((a, b) => a + b, 0);
 
   // ── 4. Escala: prioriza preencher a LARGURA total ──────────────────
-  const availW     = pageW - 2 * MARGIN;
-  const availH     = pageH - 2 * MARGIN;
-
-  // Caso contrário prioriza largura e permite múltiplas páginas
-  const scale = Math.min(availH / (totalH * 0.08), availW / totalW);
-
+  const availW = pageW - 2 * MARGIN;
+  const availH = pageH - 2 * MARGIN;
+  const scale = availW / totalW;
 
   // ── 5. Posições X ──────────────────────────────────────────────────
   const colX = [MARGIN];
@@ -3086,8 +3088,8 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
   // ── 6. Alturas e posições Y com suporte a quebras de página ────────
   const rowHeightsMm = rowHeightsRaw.map(h => h * scale);
 
-  const rowY    = [];  // posição y dentro da respectiva página
-  const rowPage = [];  // índice de página (base 1) de cada linha
+  const rowY    = [];
+  const rowPage = [];
   let pg = 1, yOnPage = MARGIN;
   for (let r = 0; r < maxRow; r++) {
     if (r > 0 && yOnPage + rowHeightsMm[r] > pageH - MARGIN) {
@@ -3110,8 +3112,6 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
     const bytes = new Uint8Array(img.buffer);
     for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
     const b64 = window.btoa(binary);
-    const r = (imgDesc.range.tl.nativeRow ?? (imgDesc.range.tl.row || 0)) + 1;
-    const c = (imgDesc.range.tl.nativeCol ?? (imgDesc.range.tl.col || 0)) + 1;
 
     const tl = imgDesc.range?.tl;
     const br = imgDesc.range?.br;
@@ -3124,10 +3124,7 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
     imageMap[`${r1},${c1}`] = {
       dataUrl: `data:image/${img.extension || 'png'};base64,${b64}`,
       ext: (img.extension || 'png').toUpperCase(),
-      r1,
-      c1,
-      r2,
-      c2
+      r1, c1, r2, c2
     };
   });
 
@@ -3161,6 +3158,30 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
 
       const x = colX[c - 1];
       const style = cell.style || {};
+      const pad = 0.6;
+
+      // ── Detecta overflow de texto (igual ao comportamento visual do Excel) ──
+      let overflowCols = 0;
+      const cellTextRaw = xlsxCellText(cell);
+      const colSpanCount = merge ? merge.colspan : 1;
+      if (cellTextRaw && !style.alignment?.wrapText) {
+        const fSizeProbe = Math.max(4, (style.font?.size || 11) * scale * 0.55);
+        doc.setFont('helvetica', style.font?.bold ? 'bold' : 'normal');
+        doc.setFontSize(fSizeProbe);
+        const textWProbe = doc.getTextWidth(String(cellTextRaw));
+        if (textWProbe > cellW - 2 * pad) {
+          let extraW = 0;
+          for (let nc = c + colSpanCount; nc <= colCount; nc++) {
+            const nextCell = row.getCell(nc);
+            const nextHasContent = nextCell.value !== null && nextCell.value !== undefined && String(xlsxCellText(nextCell)).trim() !== '';
+            const nextIsMergedAway = nextCell.isMerged && nextCell.master !== nextCell;
+            if (nextHasContent || nextIsMergedAway) break;
+            extraW += (colWidthsMm[nc - 1] || 0) * scale;
+            overflowCols++;
+            if (textWProbe <= cellW + extraW - 2 * pad) break;
+          }
+        }
+      }
 
       // Background
       const fill = style.fill || {};
@@ -3177,20 +3198,29 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
       const border = style.border || {};
       doc.setDrawColor(0, 0, 0);
       if (border.top)    doc.line(x, y, x + cellW, y);
-      if (border.left)   doc.line(x, y, x, y + cellH);
+      const isSwallowed = row.__overflowSwallowed && row.__overflowSwallowed.has(c);
+      if (border.left && !isSwallowed)   doc.line(x, y, x, y + cellH);
       if (merge) {
         const brCell = ws.getRow(r + (merge.rowspan || 1) - 1).getCell(c + (merge.colspan || 1) - 1);
         const brB = brCell.style?.border || {};
-        if (brB.right)  doc.line(x + cellW, y, x + cellW, y + cellH);
+        if (brB.right && overflowCols === 0)  doc.line(x + cellW, y, x + cellW, y + cellH);
         if (brB.bottom) doc.line(x, y + cellH, x + cellW, y + cellH);
       } else {
-        if (border.right)  doc.line(x + cellW, y, x + cellW, y + cellH);
+        if (border.right && overflowCols === 0)  doc.line(x + cellW, y, x + cellW, y + cellH);
         if (border.bottom) doc.line(x, y + cellH, x + cellW, y + cellH);
+      }
+
+      // Marca quais colunas desta linha foram "engolidas" por overflow,
+      // para que elas não desenhem sua própria borda esquerda depois.
+      if (!row.__overflowSwallowed) row.__overflowSwallowed = new Set();
+      if (overflowCols > 0) {
+        for (let i = 0; i < overflowCols; i++) {
+          row.__overflowSwallowed.add(c + colSpanCount + i);
+        }
       }
 
       // Imagem
       const imgInfo = imageMap[`${r},${c}`];
-
       if (imgInfo) {
         try {
           let imgX = x + 0.5;
@@ -3208,45 +3238,28 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
             imgY = rowY[startRow - 1] + 0.5;
 
             imgW = 0;
-            for (let cc = startCol; cc <= endCol; cc++) {
-              imgW += (colWidthsMm[cc - 1] || 0) * scale;
-            }
-
+            for (let cc = startCol; cc <= endCol; cc++) imgW += (colWidthsMm[cc - 1] || 0) * scale;
             imgH = 0;
-            for (let rr = startRow; rr <= endRow; rr++) {
-              imgH += rowHeightsMm[rr - 1] || 0;
-            }
+            for (let rr = startRow; rr <= endRow; rr++) imgH += rowHeightsMm[rr - 1] || 0;
 
             imgW -= 1;
             imgH -= 1;
           }
 
-          doc.addImage(
-            imgInfo.dataUrl,
-            imgInfo.ext,
-            imgX,
-            imgY,
-            Math.max(1, imgW),
-            Math.max(1, imgH),
-            undefined,
-            'FAST'
-          );
-        } catch (e) {
-  
-        }
+          doc.addImage(imgInfo.dataUrl, imgInfo.ext, imgX, imgY, Math.max(1, imgW), Math.max(1, imgH), undefined, 'FAST');
+        } catch (e) { /* ignora */ }
       }
 
       // Texto
-      const text = xlsxCellText(cell);
+      const text = pdfSanitize(xlsxCellText(cell));
       if (!text) continue;
 
       const font = style.font || {};
       const align = style.alignment || {};
-      const isVertical = align.textRotation === 90 || align.textRotation === 'vertical'
-                      || align.textRotation === 255;
+      const isVertical = align.textRotation === 90 || align.textRotation === 'vertical' || align.textRotation === 255;
 
       const baseSize = font.size || 11;
-      const fontSize = Math.max(4, baseSize * scale * 0.85);
+      const fontSize = Math.max(4, baseSize * scale * 0.55);
       let fStyle = 'normal';
       if (font.bold && font.italic) fStyle = 'bolditalic';
       else if (font.bold)  fStyle = 'bold';
@@ -3262,7 +3275,13 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
         doc.setTextColor(0, 0, 0);
       }
 
-      const pad = 0.6;
+      // Largura efetiva considerando overflow calculado acima
+      let effectiveCellW = cellW;
+      if (overflowCols > 0) {
+        for (let i = 0; i < overflowCols; i++) {
+          effectiveCellW += (colWidthsMm[c - 1 + colSpanCount + i] || 0) * scale;
+        }
+      }
 
       if (isVertical) {
         // ── Texto vertical (90°) — rotaciona de baixo pra cima ──
@@ -3270,9 +3289,7 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
         const lines = doc.splitTextToSize(text, maxTextH);
         const lineH = fontSize * 0.38;
         const totalLinesW = lines.length * lineH;
-        // Centraliza horizontalmente na célula
         const tx = x + (cellW + totalLinesW) / 2 - lineH * 0.25;
-        // Centraliza verticalmente
         const firstLineLen = doc.getTextWidth(lines[0] || '');
         const ty = y + (cellH + firstLineLen) / 2;
 
@@ -3282,8 +3299,7 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
           }
         } catch (e) { /* ignora */ }
       } else {
-
-       // ── Texto normal (horizontal) ──
+        // ── Texto normal (horizontal) ──
         let tx = x + pad;
         let tAlign = 'left';
 
@@ -3295,21 +3311,14 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
           tAlign = 'right';
         }
 
-        const maxTextW = cellW - 2 * pad;
+        const maxTextW = effectiveCellW - 2 * pad;
         const lineH = fontSize * 0.38;
-
-        // Só quebra automaticamente se o Excel mandou quebrar.
         const shouldWrap = align.wrapText === true;
 
         let lines;
-
         if (shouldWrap) {
-          lines = String(text)
-            .split(/\r?\n/)
-            .flatMap(part => doc.splitTextToSize(part, maxTextW));
+          lines = String(text).split(/\r?\n/).flatMap(part => doc.splitTextToSize(part, maxTextW));
         } else {
-          // Sem wrapText: preserva apenas quebras manuais.
-          // Não quebra palavra no meio.
           lines = String(text).split(/\r?\n/);
         }
 
@@ -3326,62 +3335,37 @@ function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
 
         try {
           doc.text(lines, tx, ty, { align: tAlign });
-        } catch (e) {
-          /* ignora */
-        }
-
-        // ── 9. Fechamento manual do rodapé "NOTAS / EM ATENDIMENTO" ────────
-        try {
-          const lastPage = renderedPage;
-          if (doc.setPage) doc.setPage(lastPage);
-
-          doc.setDrawColor(0, 0, 0);
-          doc.setLineWidth(0.1);
-
-          let notasRow = null;
-          let atendimentoRow = null;
-
-          // Procura as linhas do rodapé
-          for (let rr = 1; rr <= maxRow; rr++) {
-            const row = ws.getRow(rr);
-
-            for (let cc = 1; cc <= colCount; cc++) {
-              const txt = String(xlsxCellText(row.getCell(cc)) || '').toUpperCase();
-
-              if (txt.includes('NOTAS')) {
-                notasRow = rr;
-              }
-
-              if (txt.includes('EM ATENDIMENTO')) {
-                atendimentoRow = rr;
-              }
-            }
-          }
-
-          // Usa a linha "EM ATENDIMENTO" se existir.
-          // Senão usa a linha "NOTAS".
-          const baseRow = atendimentoRow || notasRow;
-
-          if (baseRow) {
-            const yBase = rowY[baseRow - 1];
-            const hBase = rowHeightsMm[baseRow - 1];
-
-            // Linha logo abaixo do "EM ATENDIMENTO:"
-            // Ajuste fino: aumente para descer, diminua para subir.
-            const yLine = yBase + hBase + 0.5;
-
-            const x1 = MARGIN;
-            const x2 = pageW - MARGIN;
-
-            doc.line(x1, yLine, x2, yLine);
-          }
-        } catch (e) {
-          /* ignora */
-        }
-        
+        } catch (e) { /* ignora */ }
       }
     }
   }
+
+  // ── 9. Fechamento manual do rodapé "NOTAS / EM ATENDIMENTO" ──────────
+  try {
+    doc.setPage(renderedPage);
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.1);
+
+    let notasRow = null;
+    let atendimentoRow = null;
+
+    for (let rr = 1; rr <= maxRow; rr++) {
+      const rowChk = ws.getRow(rr);
+      for (let cc = 1; cc <= colCount; cc++) {
+        const txt = String(xlsxCellText(rowChk.getCell(cc)) || '').toUpperCase();
+        if (txt.includes('NOTAS')) notasRow = rr;
+        if (txt.includes('EM ATENDIMENTO')) atendimentoRow = rr;
+      }
+    }
+
+    const baseRow = atendimentoRow || notasRow;
+    if (baseRow) {
+      const yBase = rowY[baseRow - 1];
+      const hBase = rowHeightsMm[baseRow - 1];
+      const yLine = yBase + hBase + 0.5;
+      doc.line(MARGIN, yLine, pageW - MARGIN, yLine);
+    }
+  } catch (e) { /* ignora */ }
 }
 
 
@@ -5512,27 +5496,18 @@ const FAMILY_IMAGE_KEY = {
 };
 
 // Resolve a chave de imagem para a família, suportando seleção dinâmica (ex: 0DM mecânico vs smart)
-function resolveImageKey(familyKey, paramValues = {}) {
-  const key = String(familyKey || '').toUpperCase();
-
-  const aliases = {
-    TEC: 'TEF',
-    TEFPC: 'TEF',
-    TEF: 'TEF',
-    TCF: 'TCF',
-    TYL: 'TYL',
-    TUS: 'TUS'
-  };
-
-  if (key === 'TBQM') {
-    const cor = String(paramValues.cor || '').toLowerCase();
-
-    if (cor.includes('amarelo')) return 'TBQM_AMARELO';
-
-    return 'TBQM';
+function resolveImageKey(familyKey, pv = {}) {
+  if (familyKey === 'ODM') {
+    const isDLA   = pv?.display === 'D' || pv?.display === 'E' || pv?.display === 'F';
+    const isSmart = pv?.tipo === 'S';
+    if (isDLA)   return 'ODM_DLA';
+    if (isSmart) return 'ODM_SMART';
+    return 'ODM_MEC';
   }
-
-  return aliases[key] || key;
+  if (familyKey === 'TBQM') {
+    return (pv?.cor === '2' || pv?.cor === '3') ? 'TBQM' : 'TBQM_AMARELO';
+  }
+  return FAMILY_IMAGE_KEY[familyKey] || '';
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -5550,11 +5525,13 @@ function pdfSanitize(str) {
     .replace(/→/g, '->')
     .replace(/←/g, '<-')
     .replace(/↔/g, '<->')
+    .replace(/≤/g, '<=')
+    .replace(/≥/g, '>=')
     .replace(/~/g, '-')
     .replace(/–/g, '-')
     .replace(/—/g, '-')
     .replace(/…/g, '...')
-    .replace(/[^\x00-\xFF]/g, '?'); // fallback para qualquer outro caractere fora do Latin-1
+    .replace(/[^\x00-\xFF]/g, '?');
 }
 
 // Remove acentos e caracteres não-ASCII para uso em badges e elementos de medição de texto no jsPDF

@@ -264,7 +264,7 @@ body {
 .main-content {
   margin-left: 220px;
   flex: 1;
-  padding: 28px 32px 60px;
+  padding: 28px 32px 160px;
   min-height: 100vh;
   max-width: calc(100vw - 220px);
 }
@@ -880,6 +880,10 @@ select:disabled { opacity: .4; cursor: not-allowed; }
 }
 .action-dropdown.open .dropdown-menu {
   display: flex;
+}
+.action-dropdown.drop-up .dropdown-menu {
+  top: auto;
+  bottom: calc(100% + 6px);
 }
 .dropdown-item {
   display: flex;

@@ -1747,18 +1747,38 @@ function isValidNumericInput(val) {
 
 function setupNumericValidation() {
   NUMERIC_FIELDS.forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('blur', function() {
-      if (!this.value.trim()) { this.style.borderColor = ''; return; }
+    const fieldEl = document.getElementById(id);
+    if (!fieldEl) return;
+
+    // Cria (ou reaproveita) o elemento de erro inline logo após o campo
+    let errEl = fieldEl.parentElement?.querySelector('.field-error-msg');
+    if (!errEl) {
+      errEl = document.createElement('div');
+      errEl.className = 'field-error-msg';
+      errEl.style.cssText = 'display:none;font-size:11px;color:#C83030;margin-top:4px;line-height:1.3;';
+      fieldEl.insertAdjacentElement('afterend', errEl);
+    }
+
+    const showError = (msg) => {
+      fieldEl.style.borderColor = '#C83030';
+      errEl.textContent = msg;
+      errEl.style.display = '';
+    };
+    const clearError = () => {
+      fieldEl.style.borderColor = '';
+      errEl.style.display = 'none';
+      errEl.textContent = '';
+    };
+
+    fieldEl.addEventListener('blur', function() {
+      if (!this.value.trim()) { clearError(); return; }
       const ok = isValidNumericInput(this.value);
-      this.style.borderColor = ok ? '' : '#C83030';
-      this.title = ok ? '' : 'Digite um número válido (ex: 25 ou 3,5)';
+      if (ok) clearError();
+      else showError('Digite um número válido (ex: 25 ou 3,5)');
     });
-    el.addEventListener('input', function() {
-      if (this.style.borderColor === 'rgb(200, 48, 48)' && isValidNumericInput(this.value)) {
-        this.style.borderColor = '';
-        this.title = '';
+    fieldEl.addEventListener('input', function() {
+      if (errEl.style.display !== 'none' && isValidNumericInput(this.value)) {
+        clearError();
       }
     });
   });
@@ -1827,8 +1847,14 @@ function setupConditionsListeners() {
   });
 
   // Reset
-  document.getElementById('btn-reset')?.addEventListener('click', () => {
-    if (!confirm('Deseja realmente limpar toda a configuração?')) return;
+  document.getElementById('btn-reset')?.addEventListener('click', async () => {
+      const ok = await confirmDialog({
+        title: 'Limpar configuração',
+        text: 'Isso vai apagar todos os campos preenchidos nesta tela.',
+        confirmText: 'Limpar tudo',
+        danger: true,
+      });
+    if (!ok) return;
     editingSpecId = null;
     paramValues = {};
     optionalValues = {};
@@ -1875,9 +1901,12 @@ function setupConditionsListeners() {
   });
 
   // Excel / PDF / Folha buttons
-  document.getElementById('btn-excel')?.addEventListener('click', generateExcel);
-  document.getElementById('btn-pdf')?.addEventListener('click', generatePDF);
-  document.getElementById('btn-sheet')?.addEventListener('click', generateSummarySheet);
+  const btnExcelEl = document.getElementById('btn-excel');
+  const btnPdfEl   = document.getElementById('btn-pdf');
+  const btnSheetEl = document.getElementById('btn-sheet');
+  btnExcelEl?.addEventListener('click', withButtonLoading(btnExcelEl, 'Gerando…', generateExcel));
+  btnPdfEl?.addEventListener('click', withButtonLoading(btnPdfEl, 'Gerando…', generatePDF));
+  btnSheetEl?.addEventListener('click', withButtonLoading(btnSheetEl, 'Gerando…', generateSummarySheet));
 
   // Save spec button
   document.getElementById('btn-save-spec')?.addEventListener('click', showSaveSpecForm);
@@ -4341,12 +4370,20 @@ function makeTemplatesSection() {
       title: 'Excluir modelo',
     });
     delBtn.innerHTML = ICONS.trash;
-    delBtn.addEventListener('click', () => {
-      if (!confirm('Excluir modelo "' + tmpl.name + '"?')) return;
-      deleteTemplate(tmpl.id);
-      card.style.opacity = '0'; card.style.transition = 'opacity .2s';
-      setTimeout(() => render(), 220);
+    delBtn.addEventListener('click', async () => {
+          const ok = await confirmDialog({
+            title: 'Excluir modelo',
+            text: `Excluir modelo "${tmpl.name}"?`,
+            confirmText: 'Excluir',
+            danger: true,
+          });
+          if (!ok) return;
+          deleteTemplate(tmpl.id);
+          card.style.opacity = '0'; card.style.transition = 'opacity .2s';
+          setTimeout(() => render(), 220);
     });
+
+
     delBtn.addEventListener('mouseenter', () => { delBtn.style.borderColor = '#C83030'; delBtn.style.color = '#C83030'; });
     delBtn.addEventListener('mouseleave', () => { delBtn.style.borderColor = B.border; delBtn.style.color = B.textLt; });
 
@@ -4469,8 +4506,14 @@ function makeSavedSpecsSection() {
 
     const delBtn = el('button', { style: `padding:7px 10px;border-radius:7px;border:1px solid ${B.border};background:${B.white};font-size:12px;color:${B.textLt};cursor:pointer;font-family:inherit;`, title: 'Excluir especificação' });
     delBtn.innerHTML = ICONS.trash;
-    delBtn.addEventListener('click', () => {
-      if (!confirm('Excluir "' + spec.name + '"?')) return;
+    delBtn.addEventListener('click', async () => {
+      const ok = await confirmDialog({
+        title: 'Excluir especificação',
+        text: `Excluir "${spec.name}"?`,
+        confirmText: 'Excluir',
+        danger: true,
+      });
+      if (!ok) return;
       deleteSpec(spec.id);
       card.style.opacity = '0'; card.style.transition = 'opacity .2s';
       setTimeout(() => render(), 220);
@@ -4675,10 +4718,15 @@ function makeOrderListPhase() {
   const actBar = el('div', { style: `display:flex;gap:10px;align-items:center;margin-bottom:20px;flex-wrap:wrap;` });
   const newBtn = el('button', { style: `padding:10px 20px;border-radius:8px;border:none;background:${B.blue};color:#fff;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer;display:flex;align-items:center;gap:7px;` });
   newBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Nova Cotação`;
-  newBtn.addEventListener('click', () => {
-    const nome = prompt('Nome da nova cotação:', `Cotação ${getOrdersList().length + 1}`);
+  newBtn.addEventListener('click', async () => {
+    const nome = await promptDialog({
+      title: 'Nova cotação',
+      inputLabel: 'Nome da cotação',
+      inputValue: `Cotação ${getOrdersList().length + 1}`,
+      confirmText: 'Criar',
+    });
     if (!nome) return;
-    createNewOrder(nome.trim() || `Cotação ${getOrdersList().length + 1}`);
+    createNewOrder(nome);
     updateSidebarClients();
     navigate('order');
   });
@@ -4772,13 +4820,18 @@ function makeOrderListPhase() {
 
     const editBtn = el('button', { title: 'Renomear', style: `padding:7px 9px;border-radius:7px;border:1px solid ${B.border};background:${B.white};cursor:pointer;color:${B.textMd};font-size:12px;font-family:inherit;` });
     editBtn.innerHTML = ICONS.edit;
-    editBtn.addEventListener('click', (e) => {
+    editBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      const novo = prompt('Novo nome da cotação:', order.name);
-      if (novo && novo.trim() && novo.trim() !== order.name) {
+      const novo = await promptDialog({
+        title: 'Renomear cotação',
+        inputLabel: 'Novo nome',
+        inputValue: order.name,
+        confirmText: 'Salvar',
+      });
+      if (novo && novo !== order.name) {
         const l = getOrdersList();
         const o = l.find(x => x.id === order.id);
-        if (o) { o.name = novo.trim(); saveOrdersList(l); render(); }
+        if (o) { o.name = novo; saveOrdersList(l); render(); }
       }
     });
     acts.appendChild(editBtn);
@@ -4788,13 +4841,14 @@ function makeOrderListPhase() {
       delBtn.innerHTML = ICONS.trash;
       delBtn.addEventListener('mouseenter', () => { delBtn.style.color = '#C83030'; delBtn.style.borderColor = '#C83030'; });
       delBtn.addEventListener('mouseleave', () => { delBtn.style.color = B.textLt; delBtn.style.borderColor = B.border; });
-      delBtn.addEventListener('click', (e) => {
+      delBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const cnt = items.length;
-        const msg = cnt > 0
-          ? `Excluir "${order.name}" com ${cnt} item${cnt > 1 ? 's' : ''}? Esta ação não pode ser desfeita.`
+        const txt = cnt > 0
+          ? `"${order.name}" tem ${cnt} item${cnt > 1 ? 's' : ''}. Esta ação não pode ser desfeita.`
           : `Excluir "${order.name}"?`;
-        if (!confirm(msg)) return;
+        const ok = await confirmDialog({ title: 'Excluir cotação', text: txt, confirmText: 'Excluir', danger: true });
+        if (!ok) return;
         deleteOrder(order.id);
         updateSidebarClients();
         render();
@@ -4944,7 +4998,17 @@ function makeOrderPhase() {
 
     const delBtn = el('button', { style: `padding:5px 7px;border-radius:6px;border:1px solid ${B.border};background:${B.white};cursor:pointer;color:${B.textLt};`, title: 'Remover item' });
     delBtn.innerHTML = ICONS.trash;
-    delBtn.addEventListener('click', () => { if (!confirm('Remover este item da cotação?')) return; removeOrderItem(item.id); render(); });
+    delBtn.addEventListener('click', async () => {
+      const ok = await confirmDialog({
+        title: 'Remover item',
+        text: 'Remover este item da cotação?',
+        confirmText: 'Remover',
+        danger: true,
+      });
+      if (!ok) return;
+      removeOrderItem(item.id);
+      render();
+    });
     delBtn.addEventListener('mouseenter', () => { delBtn.style.color = '#C83030'; delBtn.style.borderColor = '#C83030'; });
     delBtn.addEventListener('mouseleave', () => { delBtn.style.color = B.textLt; delBtn.style.borderColor = B.border; });
 
@@ -5045,20 +5109,20 @@ function makeOrderPhase() {
   const docsBtns = el('div', { style: 'display:flex;gap:10px;flex-wrap:wrap;' });
 
   const summaryPdfBtn = el('button', { style: `padding:9px 18px;border-radius:8px;border:none;background:${B.blue};color:#fff;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;display:flex;align-items:center;gap:7px;` });
-  summaryPdfBtn.innerHTML = `
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-      <path d="M4 1h5.5L13 4.5V14a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-      <path d="M9 1v4h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-      <path d="M7 10l-2 2 2 2M7 12h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-    Resumo da Cotação (PDF)`;
-  summaryPdfBtn.addEventListener('click', generateOrderSummaryPDF);
-  docsBtns.appendChild(summaryPdfBtn);
+    summaryPdfBtn.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+        <path d="M4 1h5.5L13 4.5V14a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+        <path d="M9 1v4h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M7 10l-2 2 2 2M7 12h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Resumo da Cotação (PDF)`;
+    summaryPdfBtn.addEventListener('click', withButtonLoading(summaryPdfBtn, 'Gerando…', generateOrderSummaryPDF));
+    docsBtns.appendChild(summaryPdfBtn);
 
-  const listXlsBtn = el('button', { style: `padding:9px 18px;border-radius:8px;border:1px solid ${B.border};background:${B.white};font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;color:${B.textMd};display:flex;align-items:center;gap:7px;` });
-  listXlsBtn.innerHTML = `${ICONS.excel} Lista da Cotação (Excel)`;
-  listXlsBtn.addEventListener('click', generateOrderExcel);
-  docsBtns.appendChild(listXlsBtn);
+    const listXlsBtn = el('button', { style: `padding:9px 18px;border-radius:8px;border:1px solid ${B.border};background:${B.white};font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;color:${B.textMd};display:flex;align-items:center;gap:7px;` });
+    listXlsBtn.innerHTML = `${ICONS.excel} Lista da Cotação (Excel)`;
+    listXlsBtn.addEventListener('click', withButtonLoading(listXlsBtn, 'Gerando…', generateOrderExcel));
+    docsBtns.appendChild(listXlsBtn);
 
   docsCard.appendChild(docsBtns);
   wrap.appendChild(docsCard);
@@ -5073,7 +5137,13 @@ function makeOrderPhase() {
   const clrBtn = el('button', { style: `padding:10px 16px;border-radius:8px;border:1px solid transparent;background:transparent;font-size:13px;font-family:inherit;cursor:pointer;color:${B.textLt};margin-left:auto;` });
   clrBtn.textContent = 'Limpar cotação';
   clrBtn.addEventListener('click', async () => {
-    if (!confirm('Limpar todos os itens e documentos da cotação?')) return;
+    const ok = await confirmDialog({
+      title: 'Limpar cotação',
+      text: 'Isso vai remover todos os itens e documentos da cotação.',
+      confirmText: 'Limpar tudo',
+      danger: true,
+    });
+    if (!ok) return;
     await clearOrder();
     render();
   });
@@ -5430,22 +5500,24 @@ function makeSummaryPhase() {
   const expTog = el('button', { class: 'btn btn-sheet dropdown-toggle', type: 'button' });
   expTog.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 1h5.5L13 4.5V14a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 1v4h4M5 7h6M5 10h6M5 13h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg> Exportar <svg class="chevron-down" width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   const expMenu = el('div', { class: 'dropdown-menu' });
+  
   const sheetItem = el('button', { class: 'dropdown-item' });
   sheetItem.innerHTML = ICONS.sheet + ' Gerar Folha de Resumo';
-  sheetItem.addEventListener('click', generateSummarySheet);
+  sheetItem.addEventListener('click', withButtonLoading(sheetItem, 'Gerando…', generateSummarySheet));
   expMenu.appendChild(sheetItem);
+
   if (!currentFamily?.noExcel) {
     const excelItem = el('button', { class: 'dropdown-item' });
     excelItem.innerHTML = ICONS.excel + ' Gerar Excel (Folha de Dados)';
     if (!valid || code.includes('?')) excelItem.disabled = true;
-    excelItem.addEventListener('click', generateExcel);
+    excelItem.addEventListener('click', withButtonLoading(excelItem, 'Gerando Excel…', generateExcel));
     expMenu.appendChild(excelItem);
   }
   if (!currentFamily?.noPdf) {
     const pdfItem = el('button', { class: 'dropdown-item' });
     pdfItem.innerHTML = ICONS.pdf + ' Folha de Dados (PDF)';
     if (!valid || code.includes('?')) pdfItem.disabled = true;
-    pdfItem.addEventListener('click', generatePDF);
+    pdfItem.addEventListener('click', withButtonLoading(pdfItem, 'Gerando PDF…', generatePDF));
     expMenu.appendChild(pdfItem);
   }
   expDD.appendChild(expTog);
@@ -5457,8 +5529,20 @@ function makeSummaryPhase() {
       e.stopPropagation();
       const dd = tog.closest('.action-dropdown');
       const wasOpen = dd.classList.contains('open');
-      actBar.querySelectorAll('.action-dropdown.open').forEach(d => d.classList.remove('open'));
-      if (!wasOpen) dd.classList.add('open');
+      actBar.querySelectorAll('.action-dropdown.open').forEach(d => {
+        d.classList.remove('open');
+        d.classList.remove('drop-up');
+      });
+      if (!wasOpen) {
+        const menu = dd.querySelector('.dropdown-menu');
+        const rect = dd.getBoundingClientRect();
+        const menuHeight = menu.scrollHeight || 200;
+        const spaceBelow = window.innerHeight - rect.bottom;
+        if (spaceBelow < menuHeight + 16) {
+          dd.classList.add('drop-up');
+        }
+        dd.classList.add('open');
+      }
     });
   });
   [saveMenu, expMenu].forEach(menu => {
@@ -6323,6 +6407,70 @@ async function generateOrderSummaryPDF() {
     showToast('Erro ao gerar resumo: ' + e.message, false);
   }
 }
+
+// ── Confirm / Prompt dialogs (SweetAlert2) ────────────────────
+function confirmDialog({ title, text, confirmText = 'Confirmar', danger = false }) {
+  return Swal.fire({
+    title,
+    text,
+    icon: danger ? 'warning' : 'question',
+    showCancelButton: true,
+    confirmButtonText: confirmText,
+    cancelButtonText: 'Cancelar',
+    reverseButtons: true,
+    focusCancel: !danger,
+    buttonsStyling: false,
+    customClass: {
+      popup: 'aepio-swal-popup',
+      confirmButton: danger ? 'btn btn-danger' : 'btn btn-primary',
+      cancelButton: 'btn btn-secondary',
+      actions: 'aepio-swal-actions',
+    },
+  }).then(r => r.isConfirmed);
+}
+
+function promptDialog({ title, inputLabel, inputValue = '', confirmText = 'Salvar', placeholder = '' }) {
+  return Swal.fire({
+    title,
+    input: 'text',
+    inputLabel,
+    inputValue,
+    inputPlaceholder: placeholder,
+    showCancelButton: true,
+    confirmButtonText: confirmText,
+    cancelButtonText: 'Cancelar',
+    reverseButtons: true,
+    buttonsStyling: false,
+    customClass: {
+      popup: 'aepio-swal-popup',
+      confirmButton: 'btn btn-primary',
+      cancelButton: 'btn btn-secondary',
+      actions: 'aepio-swal-actions',
+      input: 'aepio-swal-input',
+    },
+    inputValidator: (value) => !value?.trim() ? 'Digite um nome válido' : undefined,
+  }).then(r => r.isConfirmed ? r.value.trim() : null);
+}
+
+// ── Loading state para botões durante geração de arquivos ─────
+function withButtonLoading(btn, loadingText, asyncFn) {
+  return async (...args) => {
+    if (!btn || btn.classList.contains('is-loading')) return;
+    const originalHTML = btn.innerHTML;
+    const originalDisabled = btn.disabled;
+    btn.classList.add('is-loading');
+    btn.disabled = true;
+    btn.innerHTML = `<span class="aepio-spinner"></span> ${loadingText}`;
+    try {
+      await asyncFn(...args);
+    } finally {
+      btn.classList.remove('is-loading');
+      btn.disabled = originalDisabled;
+      btn.innerHTML = originalHTML;
+    }
+  };
+}
+
 
 // ── Toast notification ───────────────────────────────────────
 function showToast(message, ok = true) {

@@ -1074,6 +1074,29 @@ select:disabled { opacity: .4; cursor: not-allowed; }
 }
 
 /* ════════════════════════════════════════════════════════════
+   SWEETALERT2 — paleta Aépio
+   ════════════════════════════════════════════════════════════ */
+.aepio-swal-popup {
+  font-family: 'Inter', sans-serif !important;
+  border-radius: var(--radius-lg) !important;
+}
+.aepio-swal-actions {
+  gap: 10px !important;
+}
+.aepio-swal-input {
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  font-family: 'Inter', sans-serif !important;
+  font-size: 13px !important;
+  padding: 9px 12px !important;
+  box-shadow: none !important;
+}
+.aepio-swal-input:focus {
+  border-color: var(--blue) !important;
+  outline: 2px solid rgba(26,109,203,.2) !important;
+}
+
+/* ════════════════════════════════════════════════════════════
    TOAST ANIMATIONS
    ════════════════════════════════════════════════════════════ */
 @keyframes aepioSlideUp {

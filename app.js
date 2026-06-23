@@ -2,7 +2,7 @@
 // app.js — Gerador de Código (Wizard Flow)
 // ============================================================
 
-const FAMILIES = { TYL, TBQM, TEF, TCF, TUS, ODM: DIAF, TEC };
+const FAMILIES = { ODM: DIAF, TYL,  TBQM, TEC, TEF, TCF,TUS };
 
 // ─── Brand ───────────────────────────────────────────────────
 const B = {

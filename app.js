@@ -1545,14 +1545,21 @@ function buildCode() {
         { val: tusParts[6] || '?', label: 'Material',      missing: !paramValues.material },
         { val: tusParts[7] || '?', label: 'Comunicação',   missing: !paramValues.wireless },
       ];
-    } else if (currentFamilyKey === 'TEC') {
-      // TEC: 0TEC [P] [C] [NNNN]
+    } else if (currentFamilyKey === 'TEC') 
+    {
+      const tecParts = code.split('-');
+      const pressaoCode = tecParts[2] || '?';
       segments = [
-        { val: code.slice(0, 4), label: 'Família', fixed: true },
-        { val: code.slice(4, 5), label: 'Pressão', missing: code[4] === '?' },
-        { val: code.slice(5, 6), label: 'Comunicação', missing: code[5] === '?' },
-        { val: code.slice(6),    label: 'Sequencial', fixed: true },
+        { val: 'TEC-III', label: 'Família', fixed: true },
+        { val: pressaoCode, label: 'Pressão', missing: pressaoCode === '?' },
       ];
+      if (paramValues.correcao)  segments.push({ val: paramValues.correcao,  label: 'Correção' });
+      if (paramValues.iot)       segments.push({ val: paramValues.iot,       label: 'IoT' });
+      if (paramValues.com_local) segments.push({ val: paramValues.com_local, label: 'Com. Local' });
+      if (paramValues.corrente)  segments.push({ val: paramValues.corrente,  label: 'Corrente' });
+      if (paramValues.sinal)     segments.push({ val: paramValues.sinal,     label: 'Sinal' });
+      if (paramValues.idioma)    segments.push({ val: paramValues.idioma,    label: 'Idioma' });
+        
     } else {
       // TYL / TBQM: gas meter segment layout — detalha o prefixo por parâmetros individuais
       const GAS_SEGS = [

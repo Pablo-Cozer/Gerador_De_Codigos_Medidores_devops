@@ -106,10 +106,7 @@ const DIAF_LOOKUP_ALU = {
   '3/4" PROL||3/4" PROL':187,
   '3/4" PROL|90° MACHO X FEMEA 1/2"|3/4" PROL':188,
   '3/4" PROL|MACHO X FEMEA BORBOLETA 1/2"|3/4" PROL':189,
-};
-
-// G4.0 e G6.0 (Aço) — 12 combos, seq 190-201, sem esfera
-const DIAF_LOOKUP_ACO = {
+  // G4.0 e G6.0 (Aço) — seq 190-201
   '3/4" BSP||155MM F1.1/4 X M1':190,'3/4" BSP||305MM F1.1/4 X M1':191,
   '1" BSP||155MM F1.1/4 X M1':192,'1" BSP||305MM F1.1/4 X M1':193,
   '1.1/4" BSP||155MM F1.1/4 X M1':194,'1.1/4" BSP||305MM F1.1/4 X M1':195,
@@ -118,17 +115,19 @@ const DIAF_LOOKUP_ACO = {
   '305MM F1.1/4 X M1||155MM F1.1/4 X M1':200,'305MM F1.1/4 X M1||305MM F1.1/4 X M1':201,
 };
 
-// ── Entradas disponiveis por material ──
-const DIAF_ENTRADAS_ALU = [
+// ── Entradas e saídas disponíveis (todas as designações) ──
+const DIAF_ENTRADAS = [
   '3/8" NPT','3/8" SAE FEMEA','3/8" SAE',
-  '1/2" BSP','1/2" SAE','3/4" BSP',
+  '1/2" BSP','1/2" BSP FEMEA','1/2" SAE','3/4" BSP',
   '1" BSP','1.1/4" BSP',
   '155MM F3/4 X M1/2','305MM F3/4 X M1/2','3/4" PROL',
+  '155MM F1.1/4 X M1','305MM F1.1/4 X M1',
 ];
-const DIAF_SAIDAS_ALU = [
+const DIAF_SAIDAS = [
   '3/8" SAE','1/2" BSP','1/2" SAE','3/4" BSP',
   '1" BSP','1.1/4" BSP',
   '155MM F3/4 X M1/2','305MM F3/4 X M1/2','3/4" PROL',
+  '155MM F1.1/4 X M1','305MM F1.1/4 X M1',
 ];
 const DIAF_ESFERAS = [
   { code: '', label: 'Nenhuma' },
@@ -136,30 +135,12 @@ const DIAF_ESFERAS = [
   { code: 'MACHO X FEMEA BORBOLETA 1/2"', label: 'Macho x Femea Borboleta 1/2"' },
 ];
 
-// Entradas e saídas para ACO (G4.0/G6.0)
-const DIAF_ENTRADAS_ACO = [
-  '3/4" BSP','1" BSP','1.1/4" BSP','1/2" BSP FEMEA',
-  '155MM F1.1/4 X M1','305MM F1.1/4 X M1',
-];
-const DIAF_SAIDAS_ACO = [
-  '155MM F1.1/4 X M1','305MM F1.1/4 X M1',
-];
-
-// Designacoes que sao Aluminio (lookup compartilhado)
-const DIAF_ALU_DESIGS = { '10': true, '16': true, '25': true };
-
 // ── Helper: filtra saidas validas dado (entrada, esfera) ──
 function diafGetValidSaidas(entrada, esfera) {
   const esf = esfera || '';
-  return DIAF_SAIDAS_ALU.filter(s => {
+  return DIAF_SAIDAS.filter(s => {
     const key = entrada + '|' + esf + '|' + s;
     return DIAF_LOOKUP_ALU[key] !== undefined;
-  });
-}
-function diafGetValidSaidasAco(entrada) {
-  return DIAF_SAIDAS_ACO.filter(s => {
-    const key = entrada + '||' + s;
-    return DIAF_LOOKUP_ACO[key] !== undefined;
   });
 }
 
@@ -193,18 +174,9 @@ const DIAF = {
     const t   = pv.tipo       || '?';
     const gg  = pv.designacao || '??';
     const d   = pv.display    || '?';
-
-    let nnn = '???';
-    if (DIAF_ALU_DESIGS[gg]) {
-      const key = (pv.entrada || '') + '|' + (pv.esfera || '') + '|' + (pv.saida || '');
-      const seq = DIAF_LOOKUP_ALU[key];
-      nnn = seq != null ? String(seq).padStart(3, '0') : '???';
-    } else if (gg === '40' || gg === '60') {
-      const key = (pv.entrada || '') + '||' + (pv.saida || '');
-      const seq = DIAF_LOOKUP_ACO[key];
-      nnn = seq != null ? String(seq).padStart(3, '0') : '???';
-    }
-
+    const key = (pv.entrada || '') + '|' + (pv.esfera || '') + '|' + (pv.saida || '');
+    const seq = DIAF_LOOKUP_ALU[key];
+    const nnn = seq != null ? String(seq).padStart(3, '0') : '???';
     return '0D' + t + gg + d + nnn;
   },
 
@@ -257,65 +229,38 @@ const DIAF = {
     },
     {
       id: 'display',
-      label: 'Display',
+      label: 'Sensor',
       required: true,
-      getDynamicOptions: (pv) => {
-        const all = [
-          { code: 'A', label: 'Base' },
-          { code: 'B', label: 'Sensor Reed' },
-          { code: 'C', label: 'Sensor Hall' },
-          { code: 'D', label: 'DLA Lora' },
-          { code: 'E', label: 'DLA NB PRE' },
-          { code: 'F', label: 'DLA NB POS' },
-        ];
-        // Smart e Techem só possuem display A (Base)
-        if (pv.tipo === 'S' || pv.tipo === 'T') {
-          return [all[0]];
-        }
-        return all;
-      },
+      options: [
+        { code: 'A', label: 'Base' },
+        { code: 'B', label: 'Sensor Reed' },
+        { code: 'C', label: 'Sensor Hall' },
+        { code: 'D', label: 'DLA Lora' },
+        { code: 'E', label: 'DLA NB PRE' },
+        { code: 'F', label: 'DLA NB POS' },
+      ],
     },
     {
       id: 'entrada',
       label: 'Conexão de Entrada',
       required: true,
-      getDynamicOptions: (pv) => {
-        const gg = pv.designacao;
-        if (gg === '40' || gg === '60') {
-          return DIAF_ENTRADAS_ACO.map(e => ({ code: e, label: e }));
-        }
-        return DIAF_ENTRADAS_ALU.map(e => ({ code: e, label: e }));
-      },
+      options: DIAF_ENTRADAS.map(e => ({ code: e, label: e })),
     },
     {
       id: 'esfera',
       label: 'Esfera',
       required: true,
-      getDynamicOptions: (pv) => {
-        const gg = pv.designacao;
-        if (gg === '40' || gg === '60') {
-          return [{ code: '', label: 'N/A' }];
-        }
-        return DIAF_ESFERAS;
-      },
+      options: DIAF_ESFERAS,
     },
     {
       id: 'saida',
       label: 'Conexão de Saída',
       required: true,
       getDynamicOptions: (pv) => {
-        const gg = pv.designacao;
-        if (gg === '40' || gg === '60') {
-          const entrada = pv.entrada || '';
-          const validas = diafGetValidSaidasAco(entrada);
-          return validas.length > 0
-            ? validas.map(s => ({ code: s, label: s }))
-            : DIAF_SAIDAS_ACO.map(s => ({ code: s, label: s }));
-        }
-        const entrada = pv.entrada || '';
-        const esfera  = pv.esfera  || '';
-        const validas = diafGetValidSaidas(entrada, esfera);
-        return validas.map(s => ({ code: s, label: s }));
+        const validas = diafGetValidSaidas(pv.entrada || '', pv.esfera || '');
+        return validas.length > 0
+          ? validas.map(s => ({ code: s, label: s }))
+          : DIAF_SAIDAS.map(s => ({ code: s, label: s }));
       },
     },
   ],

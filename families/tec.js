@@ -1,55 +1,123 @@
 // TEC — Corretor de Volume TEC-III
-// Fonte: Cod_TECIII.xlsx
-// Estrutura do codigo: 0TEC[P][C][NNNN]
-//   0    = Linha (Gas) — fixo
-//   TEC  = Tipo — fixo
-//   P    = Pressao
-//   C    = Comunicacao
-//   NNNN = Sequencial (fixo 0001)
+// Fonte: configurador-tec.xlsx
+// Estrutura: TEC-III-[Pressão]-[Correção]-[IoT]-[Com.Local]-[Corrente]-[Sinal]-[Idioma]
+// Campos com valor padrão (em branco) são omitidos do código. Separador: -
+
+// Formata código de pressão para exibição (ex: '0.08/0.5' → '0,08 – 0,5 Mpa')
+function tecFormatPressao(code) {
+  if (!code) return '';
+  if (code.includes('/')) {
+    const [lo, hi] = code.split('/');
+    return lo.replace('.', ',') + ' – ' + hi.replace('.', ',') + ' Mpa';
+  }
+  const n = parseFloat(code);
+  return (Number.isInteger(n) ? n.toFixed(1) : code).replace('.', ',') + ' Mpa';
+}
 
 const TEC = {
   id: 'TEC',
   name: 'TEC-III — Corretor de Volume',
-  prefix: '0TEC',
+  prefix: 'TEC-III',
   skipConditions: true,
 
   defaults: {
-    pressao:      'G',
-    comunicacao:  'A',
+    pressao:   '0.08/1.0',
+    correcao:  '',
+    iot:       '',
+    com_local: 'R',
+    corrente:  'I',
+    sinal:     '1',
   },
 
   buildCode(pv) {
-    const p = pv.pressao    || '?';
-    const c = pv.comunicacao || '?';
-    return '0TEC' + p + c + '0001';
+    const parts = ['TEC-III', pv.pressao || '?'];
+    if (pv.correcao)  parts.push(pv.correcao);
+    if (pv.iot)       parts.push(pv.iot);
+    if (pv.com_local) parts.push(pv.com_local);
+    if (pv.corrente)  parts.push(pv.corrente);
+    if (pv.sinal)     parts.push(pv.sinal);
+    return parts.join('-');
+  },
+
+  getDescription(pv) {
+    const pLabel = tecFormatPressao(pv.pressao);
+    const parts  = ['CORRETOR DE VOLUME TEC-III', pLabel];
+    const corMap = { A: 'SEM SENSORES', B: 'SENSOR TEMP.', C: 'SENSOR PRESS.' };
+    const iotMap = { '2G': 'IoT 2G', '4G': 'IoT 4G LTE', NB: 'IoT NB-IoT' };
+    if (pv.correcao  && corMap[pv.correcao]) parts.push(corMap[pv.correcao]);
+    if (pv.iot       && iotMap[pv.iot])      parts.push(iotMap[pv.iot]);
+    if (pv.com_local === 'R')                parts.push('COM. ÓPTICA');
+    if (pv.corrente  === 'I')                parts.push('4-20mA');
+    if (pv.sinal     === '1')                parts.push('SINAL LF');
+    if (pv.sinal     === '2')                parts.push('SINAL HF');
+    return parts.filter(Boolean).join(', ');
   },
 
   parameters: [
     {
       id: 'pressao',
-      label: 'Faixa de Pressão',
+      label: 'Pressão Máxima de Trabalho',
       required: true,
       options: [
-        { code: 'A', label: '0,8 – 2 bar' },
-        { code: 'B', label: '1 – 5 bar' },
-        { code: 'C', label: '2 – 10 bar' },
-        { code: 'D', label: '4 – 20 bar' },
-        { code: 'E', label: '10 – 50 bar' },
-        { code: 'F', label: '20 – 100 bar' },
-        { code: 'G', label: '0,8 – 10 bar' },
-        { code: 'H', label: '4 – 100 bar' },
-        { code: 'J', label: 'N/A' },
+        { code: '0.08/0.5',  label: '0,08 / 0,5 Mpa' },
+        { code: '0.08/1.0',  label: '0,08 / 1,0 Mpa' },
+        { code: '0.08/2.0',  label: '0,08 / 2,0 Mpa' },
+        { code: '0.1/3.5',   label: '0,1 / 3,5 Mpa' },
+        { code: '0.1/5.0',   label: '0,1 / 5,0 Mpa' },
+        { code: '0.2/7.0',   label: '0,2 / 7,0 Mpa' },
+        { code: '0.4/2.0',   label: '0,4 / 2,0 Mpa' },
+        { code: '0.4/10',    label: '0,4 / 10 Mpa' },
+        { code: '0.5/12',    label: '0,5 / 12 Mpa' },
       ],
     },
     {
-      id: 'comunicacao',
-      label: 'Comunicação',
+      id: 'correcao',
+      label: 'Método de Correção',
       required: true,
       options: [
-        { code: 'A', label: 'RS485 + Óptica' },
-        { code: 'B', label: 'RS485 + Óptica + NB-IoT' },
-        { code: 'C', label: 'RS485 + Óptica + 4G' },
-        { code: 'D', label: 'RS485 + Óptica + Bluetooth' },
+        { code: '',  label: 'Padrão — temp. e pressão por sensores' },
+        { code: 'A', label: 'A — Sem sensores (config. fixas)' },
+        { code: 'B', label: 'B — Sensor de temp. (pressão por config.)' },
+        { code: 'C', label: 'C — Sensor de pressão (temp. por config.)' },
+      ],
+    },
+    {
+      id: 'iot',
+      label: 'Comunicação Remota (IoT)',
+      required: true,
+      options: [
+        { code: '',   label: 'Sem módulo IoT' },
+        { code: '2G', label: '2G' },
+        { code: '4G', label: '4G LTE Cat.1' },
+        { code: 'NB', label: 'NB-IoT' },
+      ],
+    },
+    {
+      id: 'com_local',
+      label: 'Com Local',
+      required: true,
+      options: [
+        { code: '',  label: 'Sem sensor IEC' },
+        { code: 'R', label: 'R — Sensor IEC' },
+      ],
+    },
+    {
+      id: 'corrente',
+      label: 'Módulo 4~20',
+      required: true,
+      options: [
+        { code: '',  label: 'Sem módulo' },
+        { code: 'I', label: 'I — Com módulo' },
+      ],
+    },
+    {
+      id: 'sinal',
+      label: 'Modo de Sinal',
+      required: true,
+      options: [
+        { code: '',  label: 'Sem entrada de pulso' },
+        { code: '1', label: '1 — LF (Baixa Frequência)' },
+        { code: '2', label: '2 — HF (Alta Frequência)' },
       ],
     },
   ],
@@ -58,45 +126,30 @@ const TEC = {
 
   pdfMappings: {
     tipo: 'Corretor de Volume',
-    getGrauProtecao: () => '',
+    getGrauProtecao:    () => '',
     getTipoTransmissor: () => '',
-    getSinalSaida: () => '',
-    getAlimentacao: () => '',
+    getSinalSaida:      () => '',
+    getAlimentacao:     () => '',
     getConexaoEletrica: () => '',
-    getMaterialCaixa: () => '',
-    getRevestimento: () => 'N/A',
-    getMaterialFlange: () => 'N/A',
-    getEletrodo: () => 'N/A',
-    getCaixaSensor: () => '',
-    getAtex: () => '',
+    getMaterialCaixa:   () => '',
+    getRevestimento:    () => 'N/A',
+    getMaterialFlange:  () => 'N/A',
+    getEletrodo:        () => 'N/A',
+    getCaixaSensor:     () => '',
+    getAtex:            () => '',
     getConexaoProcesso: () => '',
   },
 
-  // ── Faixas de pressão → range legível ──────────────────────
-  _pressaoRange: {
-    A: '0,8 – 2 bar',   B: '1 – 5 bar',    C: '2 – 10 bar',
-    D: '4 – 20 bar',    E: '10 – 50 bar',   F: '20 – 100 bar',
-    G: '0,8 – 10 bar',  H: '4 – 100 bar',   J: 'N/A',
-  },
-
-  // ── Comunicação → descrições ───────────────────────────────
-  _comLabels: {
-    A: 'RS485 + Óptica',
-    B: 'RS485 + Óptica + NB-IoT',
-    C: 'RS485 + Óptica + 4G',
-    D: 'RS485 + Óptica + Bluetooth',
-  },
-
   populateExcel({ ws, set, code, paramValues: pv, ex }) {
-    const pCode = pv.pressao    || '';
-    const cCode = pv.comunicacao || '';
-    const pRange = this._pressaoRange[pCode] || '';
-    const cLabel = this._comLabels[cCode]    || '';
+    const pLabel  = tecFormatPressao(pv.pressao);
+    const iotMap  = { '2G': '2G', '4G': '4G LTE Cat.1', NB: 'NB-IoT' };
+    const iotLabel = iotMap[pv.iot] || '';
 
-    const hasModem = cCode === 'B' || cCode === 'C' || cCode === 'D';
-    const modemType = cCode === 'B' ? 'NB-IoT'
-                    : cCode === 'C' ? '4G'
-                    : cCode === 'D' ? 'Bluetooth' : '';
+    const comParts = ['MODBUS RTU (RS485)'];
+    if (pv.com_local === 'R') comParts.push('Óptica');
+    if (iotLabel)              comParts.push(iotLabel);
+    if (pv.corrente === 'I')  comParts.push('4-20mA');
+    const cLabel = comParts.join(' + ');
 
     // ── CABEÇALHO ────────────────────────────────────────────
     set('H1', ex.num_doc ? 'N° ' + ex.num_doc : '');
@@ -119,17 +172,19 @@ const TEC = {
     set('F12', cLabel);
     set('F13', 'T, PT, PTZ (AGA8-92DC, SGERG-88, AGA8-G1/G2, NX-19)');
     set('F14', 'Sim — IEC 62056-21');
-    set('F15', 'Bateria 3,6V Lítio (EVE ER34615) — vida útil > 6 anos / Ext. 6,5V DC ±10%, 1W');
-    set('F16', hasModem ? 'MODBUS RTU (RS485) + ' + modemType : 'MODBUS RTU (RS485)');
+    set('F15', 'Bateria 3,6V Lítio (EVE ER34615) — vida útil > 6 anos / Ext. 5,7V DC ±10%, 1W');
+    set('F16', cLabel);
     set('F17', 'Sim — aço inox');
 
     // ── ENTRADAS E SAÍDAS (rows 18-24) ───────────────────────
     set('F18', '2 entradas LF (reed switch), 0–2 Hz');
     set('F19', '1 saída digital (reed switch)');
     set('F20', '1 entrada HF, 0–5 kHz (com alimentação externa)');
-    set('F21', '6,5V DC ±10%, 1W');
-    set('F22', 'Opcional — 4-20 mA (com alimentação externa)');
-    set('F23', hasModem ? modemType : 'N/A');
+    set('F21', '5,7V DC ±10%, 1W');
+    set('F22', pv.corrente === 'I'
+      ? 'Sim — 4-20 mA (com alimentação externa)'
+      : 'Opcional — 4-20 mA (com alimentação externa)');
+    set('F23', iotLabel || 'N/A');
     set('F24', '2 entradas tipo encoder (Elster/Actaris)');
 
     // ── TRANSDUTOR DE TEMPERATURA (rows 25-33) ───────────────
@@ -147,8 +202,8 @@ const TEC = {
     set('F34', 'TB148 — Piezoresistivo / I²C');
     set('F35', 'Conforme certificado de calibração');
     set('F36', '1/4" NPT — Aço inox 316');
-    set('F37', pRange || 'N/A');
-    set('F38', pRange || 'N/A');
+    set('F37', pLabel || 'N/A');
+    set('F38', pLabel || 'N/A');
     set('F39', '±0,1% F.E.');
     set('F40', 'I²C');
     set('F41', '1 m (padrão)');

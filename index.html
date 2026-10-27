@@ -95,7 +95,7 @@
       <!-- ── Condições do Processo ── -->
       <div class="card section open">
         <div class="section-header">
-          <span class="section-title">Condições do Processo — Folha de Dados</span>
+          <span class="section-title" id="conditions-card-title">Condições do Processo — Folha de Dados</span>
           <span class="section-badge pending">Para Excel</span>
           <span class="section-chevron">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
@@ -191,6 +191,7 @@
               <label for="pdf-qmax">Qmáx</label>
               <input type="text" id="pdf-qmax" class="pdf-extra-field" placeholder="Ex: 1500" />
             </div>
+            <div class="range-warning hidden" id="range-warning" role="alert"></div>
 
             <!-- Sentido do Fluxo -->
             <div class="form-group">
@@ -302,6 +303,7 @@
             </div><!-- /#conditions-process-sections -->
 
             <!-- ─── Dados do Instrumento (auto-preenchidos) ─── -->
+            <div id="conditions-instrument-section">
             <div class="form-group-divider">Dados do Instrumento <span class="divider-note">preenchidos automaticamente pelo configurador</span></div>
 
             <div class="form-group">
@@ -314,6 +316,7 @@
               <input type="text" id="pdf-conn-proc" class="pdf-extra-field auto-field" readonly
                 placeholder="Selecionado no configurador" />
             </div>
+            </div><!-- /#conditions-instrument-section -->
 
           </div>
         </div>
@@ -393,7 +396,7 @@
                 <path d="M4 1h5.5L13 4.5V14a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
                 <path d="M9 1v4h4M5 7h6M5 10h6M5 13h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
               </svg>
-              Gerar Folha de Resumo
+              Gerar Proposta Técnica
             </button>
             <button class="dropdown-item" id="btn-excel">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -439,7 +442,6 @@
     <div id="print-area"></div>
 
   </main>
-  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="templates/template_fd.js"></script>
   <script src="templates/template_coriolis.js"></script>
   <script src="templates/template_rot.js"></script>

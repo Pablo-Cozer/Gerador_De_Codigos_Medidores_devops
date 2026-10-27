@@ -69,7 +69,7 @@ const PARAM_DETAILS = {
     electrical_conn: { N:'Padrão americano', M:'Padrão europeu / métrico', Y:'Sob consulta' },
     power_supply: { A:'85–265V AC · 50Hz ±4Hz', D:'24V DC ±15~20%', Y:'Sob consulta' },
     flange_material: { '1':'Uso geral, ambiente seco', '2':'Resistência moderada', '3':'Alta corrosividade / sanitário', Y:'Sob consulta' },
-    sensor_housing: { '1':'Padrão', '2':'Resistência moderada', '3':'Alta corrosividade', Y:'Sob consulta' },
+    sensor_housing: { '1':'Padrão · ambiente seco/abrigado', '2':'Ambientes úmidos ou externos', '3':'Ambientes corrosivos / costeiros', Y:'Sob consulta' },
     lining: {
       A:'-20°C a 80°C · Água, esgoto, pasta mineral', B:'-40°C a 130°C · Ácidos, bases, solventes',
       C:'-20°C a 150°C · Ácidos concentrados, HCl', D:'-20°C a 180°C · Processos quentes',
@@ -170,7 +170,7 @@ const STEP_HELP = {
     electrical_conn: 'Tipo de entrada de cabo do transmissor. NPT (N) é padrão americano; M20 (M) é padrão europeu/métrico.',
     power_supply: 'Tensão de alimentação do transmissor. AC (A) para alimentação industrial convencional; DC (D) para painéis e sistemas SCADA.',
     flange_material: 'Material do flange de conexão à tubulação. Carbono (1) para líquidos não corrosivos; AISI 316 (2) para corrosividade moderada; AISI 316L (3) para sanitário ou alta corrosão.',
-    sensor_housing: 'Material da carcaça do sensor em contato com o fluido. Aço Inox (1) padrão; opções mais nobres para meios corrosivos.',
+    sensor_housing: 'Material do corpo do medidor — a carcaça externa que envolve o tubo de medição. Não tem contato com o fluido. Escolha conforme o ambiente de instalação: Aço Carbono (1) é o padrão; Aço Inox 304 (2) ou 316 (3) para ambientes úmidos, corrosivos ou costeiros.',
     lining: 'Revestimento interno do tubo sensor. Defina com base na temperatura, agressividade química e abrasão do fluido.',
     electrode: 'Material dos eletrodos em contato direto com o fluido. Escolha conforme a composição química do processo.',
     process_conn: 'Norma e classe de pressão do flange de processo. EN 1092-1 (europeu) ou ANSI (americano). Escolha de acordo com a tubulação existente. Para conexões fora do catálogo (rosqueadas, wafer, especiais), selecione "Especial / Sob Consulta" — código YYY — e descreva a classe no campo que aparecerá abaixo.',
@@ -319,7 +319,8 @@ const ACTIVE_ORDER_ID_KEY  = 'aepio_active_order_id';
 })();
 
 function getOrdersList()   { try { return JSON.parse(localStorage.getItem(ORDERS_LIST_KEY) || '[]'); } catch { return []; } }
-function saveOrdersList(l) { try { localStorage.setItem(ORDERS_LIST_KEY, JSON.stringify(l)); } catch {} }
+function warnStorageFull() { showToast('Erro ao salvar a cotação: armazenamento do navegador cheio ou bloqueado', false); }
+function saveOrdersList(l) { try { localStorage.setItem(ORDERS_LIST_KEY, JSON.stringify(l)); } catch { warnStorageFull(); } }
 function getActiveOrderId()  { return localStorage.getItem(ACTIVE_ORDER_ID_KEY) || getOrdersList()[0]?.id || null; }
 function setActiveOrderId(id){ try { localStorage.setItem(ACTIVE_ORDER_ID_KEY, id); } catch {} }
 
@@ -343,9 +344,9 @@ let orderItems  = (() => { try { return JSON.parse(localStorage.getItem('aepio_o
 let orderHeader = (() => { try { return JSON.parse(localStorage.getItem('aepio_order_header_' + _activeOrderId) || '{}'); } catch { return {}; } })();
 let orderAtts   = (() => { try { return JSON.parse(localStorage.getItem('aepio_order_atts_'   + _activeOrderId) || '[]'); } catch { return []; } })();
 
-function saveOrderItems()  { try { localStorage.setItem('aepio_order_items_'  + _activeOrderId, JSON.stringify(orderItems));  } catch {} }
-function saveOrderHeader() { try { localStorage.setItem('aepio_order_header_' + _activeOrderId, JSON.stringify(orderHeader)); } catch {} }
-function saveOrderAtts()   { try { localStorage.setItem('aepio_order_atts_'   + _activeOrderId, JSON.stringify(orderAtts));   } catch {} }
+function saveOrderItems()  { try { localStorage.setItem('aepio_order_items_'  + _activeOrderId, JSON.stringify(orderItems));  } catch { warnStorageFull(); } }
+function saveOrderHeader() { try { localStorage.setItem('aepio_order_header_' + _activeOrderId, JSON.stringify(orderHeader)); } catch { warnStorageFull(); } }
+function saveOrderAtts()   { try { localStorage.setItem('aepio_order_atts_'   + _activeOrderId, JSON.stringify(orderAtts));   } catch { warnStorageFull(); } }
 
 function switchToOrder(id) {
   _activeOrderId = id;
@@ -414,8 +415,13 @@ async function clearOrder() {
 }
 
 // ─── History API — suporte ao botão voltar do navegador ───────
+// Guarda também um snapshot da configuração: ao voltar para uma entrada de OUTRA família,
+// restaura a configuração daquela família (sem isso o wizard misturava família e paramValues).
 function historyState() {
-  return { phase, stepIndex: currentStepIndex, familyKey: currentFamilyKey };
+  return {
+    phase, stepIndex: currentStepIndex, familyKey: currentFamilyKey,
+    paramValues: { ...paramValues }, optionalValues: { ...optionalValues },
+  };
 }
 
 function navigate(newPhase, newStepIndex = 0, opts = {}) {
@@ -454,14 +460,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!s) { phase = 'family'; currentStepIndex = 0; render(); return; } // sem estado: borda do histórico
     phase            = s.phase      || 'family';
     currentStepIndex = s.stepIndex  || 0;
-    if (s.familyKey && FAMILIES[s.familyKey]) {
+    if (s.familyKey && FAMILIES[s.familyKey] && s.familyKey !== currentFamilyKey) {
       currentFamilyKey = s.familyKey;
       currentFamily    = FAMILIES[s.familyKey];
+      paramValues      = { ...(s.paramValues || {}) };
+      optionalValues   = { ...(s.optionalValues || {}) };
+      editingSpecId    = null;
     }
+    if (phase !== 'family' && !currentFamily) phase = 'family';
     render();
   });
 
   setupConditionsListeners();
+  document.addEventListener('keydown', handleWizardKeydown);
   document.getElementById('nav-home')?.addEventListener('click', () => {
     sidebarFilter = null;
     returnToOrder = false;
@@ -491,6 +502,9 @@ function render() {
 
   root.innerHTML = '';
 
+  // Voltar à tela inicial encerra a edição da especificação aberta
+  if (phase === 'family') editingSpecId = null;
+
   if (phase === 'conditions') {
     cond.style.display = '';
     renderConditionsHeader();
@@ -500,7 +514,7 @@ function render() {
   }
 
   if (phase === 'family')      root.appendChild(makeFamilyPhase());
-  if (phase === 'configure')   root.appendChild(makeConfigurePhase());
+  if (phase === 'configure') { root.appendChild(makeConfigurePhase()); focusSelectedOptionCard(); }
   if (phase === 'summary')     root.appendChild(makeSummaryPhase());
   if (phase === 'order-list')  root.appendChild(makeOrderListPhase());
   if (phase === 'order')       root.appendChild(makeOrderPhase());
@@ -703,6 +717,9 @@ function makeConfigurePhase() {
     wrap.appendChild(banner);
   }
 
+  const editingBanner = makeEditingBanner();
+  if (editingBanner) wrap.appendChild(editingBanner);
+
   wrap.appendChild(container);
   return wrap;
 }
@@ -818,7 +835,8 @@ function makeStepIndicator(steps, fColor) {
           // Navegar adiante: verifica se todos os steps obrigatórios anteriores estão preenchidos
           for (let j = 0; j < i; j++) {
             const s = steps[j];
-            if (!s.isOptionals && !paramValues[s.id]) {
+            // '' é uma opção válida (ex.: "padrão" no TEC) — só null/undefined é etapa incompleta
+            if (!s.isOptionals && paramValues[s.id] == null) {
               // Bloqueia: vai até o step incompleto e avisa
               closeWizardPanel();
               navigate('configure', j);
@@ -937,8 +955,6 @@ function resolveOptions(step) {
   return step.options || [];
 }
 
-
-
 function getPdfRenderRange(ws) {
   const sheetName = ws.name || '';
 
@@ -955,9 +971,23 @@ function getPdfRenderRange(ws) {
   };
 }
 
-
-
-
+// Remove seleções que deixaram de ser válidas após uma mudança:
+// - opcionais "só remoto" quando o transmissor não é remoto (R)
+// - parâmetros dinâmicos cujo valor não está mais na lista (ex.: TUS 8 vias com calibre 3")
+function pruneInvalidSelections() {
+  const fam = currentFamily;
+  if (!fam) return;
+  if (paramValues.transmitter_type !== 'R') {
+    (fam.optionals || []).forEach(o => { if (o.remoteOnly && optionalValues[o.id]) optionalValues[o.id] = null; });
+  }
+  fam.parameters.forEach(p => {
+    if (typeof p.getDynamicOptions !== 'function') return;
+    const val = paramValues[p.id];
+    if (val == null || val === '') return;
+    const opts = p.getDynamicOptions(paramValues) || [];
+    if (!opts.some(o => o.code === val)) paramValues[p.id] = null;
+  });
+}
 
 function makeOptionsGrid(step, opts, fColor) {
   const details = PARAM_DETAILS[currentFamilyKey]?.[step.id] || {};
@@ -991,6 +1021,7 @@ function makeOptionsGrid(step, opts, fColor) {
       if (step.id === 'material') {
         paramValues.classe = null;
       }
+      pruneInvalidSelections();
       currentFamily?.onParamChange?.(paramValues);
       render();
     });
@@ -1095,6 +1126,10 @@ function makeOptionalsContent(step, fColor) {
 
 function makeOptionCard(code, label, detail, selected, fColor, isOptional, onClick) {
   const card = el('div', {
+    class: 'option-card',
+    tabindex: '0',
+    role: isOptional ? 'checkbox' : 'radio',
+    'aria-checked': selected ? 'true' : 'false',
     style: `border:2px solid ${selected ? fColor : B.border};background:${selected ? fColor + '0E' : B.white};border-radius:8px;padding:12px 14px;cursor:pointer;transition:all .15s;position:relative;`
   });
 
@@ -1154,11 +1189,14 @@ function makeNavButtons(steps, step, fColor) {
 
   // Next / Finalizar
   const skipConditions = currentFamily && currentFamily.skipConditions;
-  const nextLabel = isLast ? (skipConditions ? 'Resumo' : 'Condições do Processo') : 'Próximo';
+  const nextLabel = isLast
+    ? (skipConditions ? 'Resumo' : currentFamily.conditionsHeaderOnly ? 'Dados do Cliente' : 'Condições do Processo')
+    : 'Próximo';
   const nextIcon = ICONS.arrow;
   const disabled = noOpts || (!step.isOptionals && !canProceed);
 
   const nextBtn = el('button', {
+    id: 'wizard-next-btn',
     style: `padding:9px 22px;border-radius:8px;border:none;background:${disabled ? B.border : fColor};color:#fff;font-size:14px;font-family:inherit;cursor:${disabled ? 'not-allowed' : 'pointer'};font-weight:600;display:flex;align-items:center;gap:8px;`,
   });
   nextBtn.innerHTML = `${nextLabel} ${nextIcon}`;
@@ -1201,7 +1239,85 @@ function makeNavButtons(steps, step, fColor) {
     row.insertBefore(skipBtn, nextBtn);
   }
 
-  return row;
+  const wrap = el('div', {});
+  wrap.appendChild(row);
+  const hint = el('div', { class: 'wizard-kbd-hint' });
+  hint.innerHTML = step.isOptionals
+    ? '<kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> navegar · <kbd>Espaço</kbd> marcar/desmarcar · <kbd>Enter</kbd> avançar · <kbd>Backspace</kbd> voltar'
+    : '<kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> navegar · <kbd>Enter</kbd> selecionar e avançar · <kbd>Backspace</kbd> voltar';
+  wrap.appendChild(hint);
+  return wrap;
+}
+
+// ── Navegação do wizard por teclado ──────────────────────────
+// Setas movem o foco entre os cards; Enter seleciona o card focado e avança
+// (se nada foi movido, só avança — mantém a opção pré-selecionada);
+// Espaço marca/desmarca; Backspace volta um passo.
+function getWizardCards() {
+  return [...document.querySelectorAll('.wizard-step-center .option-card')];
+}
+
+function focusSelectedOptionCard() {
+  const active = document.activeElement;
+  if (active && active !== document.body && !active.classList?.contains('option-card')) return;
+  const cards = getWizardCards();
+  const target = cards.find(c => c.getAttribute('aria-checked') === 'true') || cards[0];
+  target?.focus({ preventScroll: true });
+}
+
+function moveCardFocus(cards, idx, key) {
+  if (idx < 0) {
+    (cards.find(c => c.getAttribute('aria-checked') === 'true') || cards[0])?.focus();
+    return;
+  }
+  if (key === 'ArrowLeft')  { cards[idx - 1]?.focus(); return; }
+  if (key === 'ArrowRight') { cards[idx + 1]?.focus(); return; }
+  // Cima/baixo: card mais próximo horizontalmente na linha visual vizinha
+  const cur = cards[idx].getBoundingClientRect();
+  const down = key === 'ArrowDown';
+  const rows = cards
+    .map(c => ({ c, r: c.getBoundingClientRect() }))
+    .filter(({ r }) => down ? r.top > cur.top + 2 : r.top < cur.top - 2);
+  if (!rows.length) return;
+  const rowTop = down ? Math.min(...rows.map(x => x.r.top)) : Math.max(...rows.map(x => x.r.top));
+  const best = rows
+    .filter(x => Math.abs(x.r.top - rowTop) < 2)
+    .sort((a, b) => Math.abs(a.r.left - cur.left) - Math.abs(b.r.left - cur.left))[0];
+  best?.c.focus();
+}
+
+function handleWizardKeydown(e) {
+  if (phase !== 'configure' || e.altKey || e.ctrlKey || e.metaKey) return;
+  const t = e.target;
+  if (t.closest?.('input, textarea, select, button, a, [contenteditable="true"]')) return;
+
+  const cards = getWizardCards();
+  const idx = cards.indexOf(t);
+  const steps = getWizardSteps();
+  const step = steps[currentStepIndex];
+  if (!step) return;
+
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+    if (!cards.length) return;
+    e.preventDefault();
+    moveCardFocus(cards, idx, e.key);
+  } else if (e.key === ' ') {
+    if (idx < 0) return;
+    e.preventDefault();
+    cards[idx].click();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (idx >= 0 && !step.isOptionals && cards[idx].getAttribute('aria-checked') !== 'true') {
+      cards[idx].click(); // seleciona (re-renderiza o passo)
+      // Conexão especial exige descrição — fica no passo para o usuário preencher
+      if (step.id === 'process_conn' && paramValues.process_conn === 'YYY') return;
+    }
+    document.getElementById('wizard-next-btn')?.click();
+  } else if (e.key === 'Backspace') {
+    if (currentStepIndex === 0) return;
+    e.preventDefault();
+    navigate('configure', currentStepIndex - 1);
+  }
 }
 
 // ── Order Code Panel (right column) ──────────────────────────
@@ -1341,6 +1457,8 @@ function renderConditionsHeader() {
   if (!hdr) return;
   const meta = FAMILY_META[currentFamilyKey] || { color: B.blue, icon: '' };
   const isTEF = currentFamilyKey === 'TEF';
+  const headerOnly = !!currentFamily?.conditionsHeaderOnly;
+  const pageTitle = headerOnly ? 'Dados do Cliente' : 'Condições do Processo';
 
   hdr.innerHTML = `
     <div class="page-header" style="margin-bottom:0;">
@@ -1348,12 +1466,21 @@ function renderConditionsHeader() {
         <button id="btn-back-to-configure" style="background:none;border:none;cursor:pointer;color:${B.textMd};font-size:13px;font-family:inherit;display:flex;align-items:center;gap:6px;padding:0;margin-bottom:8px;">
           ${ICONS.back} Voltar ao configurador
         </button>
-        <h1 class="page-title">Condições do Processo</h1>
+        <h1 class="page-title">${pageTitle}</h1>
         <p class="page-subtitle">Preencha para gerar a Folha de Dados em Excel ou PDF</p>
       </div>
     </div>`;
 
-  document.getElementById('btn-back-to-configure')?.addEventListener('click', () => navigate('configure'));
+  document.getElementById('btn-back-to-configure')?.addEventListener('click', () => navigate('configure', Math.max(0, getWizardSteps().length - 1)));
+
+  const editingBanner = makeEditingBanner();
+  if (editingBanner) { editingBanner.style.marginTop = '14px'; hdr.appendChild(editingBanner); }
+
+  // Detecta troca de família — limpa as condições de processo da família anterior
+  // (inclusive campos ocultos como face/range, que iriam para o Excel sem o usuário ver)
+  const familyChanged = conditionsFamilyKey !== currentFamilyKey;
+  conditionsFamilyKey = currentFamilyKey;
+  if (familyChanged) clearProcessConditionFields();
 
   // Family-specific field visibility
   const isTYL = currentFamilyKey === 'TYL';
@@ -1406,10 +1533,6 @@ function renderConditionsHeader() {
   if (atexEl && map.getAtex)              atexEl.value = map.getAtex(paramValues) || '';
   if (connEl && map.getConexaoProcesso)   connEl.value = map.getConexaoProcesso(paramValues) || '';
 
-  // Detecta troca de família — quando muda, sempre sobrescreve os campos de vazão
-  const familyChanged = conditionsFamilyKey !== currentFamilyKey;
-  conditionsFamilyKey = currentFamilyKey;
-
   // Auto-fill vazões para famílias que usam getFlowRange (TYL, TBQM)
   // — evita que campos fiquem com valores residuais de outra família
   if (typeof currentFamily?.getFlowRange === 'function') {
@@ -1436,14 +1559,17 @@ function renderConditionsHeader() {
     }
     // Unidade padrão para gás: m³/h
     const qunitEl = document.getElementById('pdf-qunit');
-    if (qunitEl && (familyChanged || !qunitEl.dataset.auto || qunitEl.dataset.auto === '1')) {
+    if (qunitEl && !qunitEl.dataset.userEdited) {
       const match = [...qunitEl.options].some(o => o.value === 'm³/h');
-      if (match) { qunitEl.value = 'm³/h'; qunitEl.dataset.auto = '1'; }
+      if (match) qunitEl.value = 'm³/h';
     }
-    // Trigger range update (re-set auto após dispatch pois o listener de edição manual apaga dataset.auto)
-    document.getElementById('pdf-qmax')?.dispatchEvent(new Event('input'));
-    if (qminEl && qminEl.value) qminEl.dataset.auto = '1';
-    if (qmaxEl && qmaxEl.value) qmaxEl.dataset.auto = '1';
+    // Trigger range update (re-set auto após dispatch pois o listener de edição manual apaga dataset.auto;
+    // só re-marca o que já era automático — valor digitado pelo usuário continua manual)
+    const minWasAuto = qminEl?.dataset.auto === '1';
+    const maxWasAuto = qmaxEl?.dataset.auto === '1';
+    qmaxEl?.dispatchEvent(new Event('input'));
+    if (minWasAuto) qminEl.dataset.auto = '1';
+    if (maxWasAuto) qmaxEl.dataset.auto = '1';
   }
 
   // Auto-fill DN defaults para famílias que usam getDnDefaults (TEF, TCF)
@@ -1453,9 +1579,20 @@ function renderConditionsHeader() {
   }
 
   // TUS: oculta seções de condições de processo (Fluido, Vazão, Pressão, Propriedades)
+  // TEC (conditionsHeaderOnly): só o cabeçalho — cliente, nº doc e aplicação
   const isTUS = currentFamilyKey === 'TUS';
   const procSections = document.getElementById('conditions-process-sections');
-  if (procSections) procSections.style.display = isTUS ? 'none' : '';
+  if (procSections) procSections.style.display = (isTUS || headerOnly) ? 'none' : '';
+  const instrSection = document.getElementById('conditions-instrument-section');
+  if (instrSection) instrSection.style.display = headerOnly ? 'none' : '';
+  // Notas: o template do TEC não tem linha de notas e o do TUS tem notas fixas do produto —
+  // nessas famílias as notas só saem na Proposta Técnica
+  const notesLabel = document.querySelector('label[for="pdf-notas"]');
+  if (notesLabel) notesLabel.textContent = (isTUS || headerOnly)
+    ? 'Notas (aparece só na Proposta Técnica)'
+    : 'Notas (aparece na folha de dados)';
+  const cardTitle = document.getElementById('conditions-card-title');
+  if (cardTitle) cardTitle.textContent = (headerOnly ? 'Dados do Cliente' : 'Condições do Processo') + ' — Folha de Dados';
 
   // TUS: auto-preenche campos ocultos via tabela do manual
   if (isTUS) {
@@ -1620,6 +1757,7 @@ function buildCode() {
   for (const opt of fam.optionals) {
     const code = optionalValues[opt.id];
     if (!code) continue;
+    if (opt.remoteOnly && paramValues.transmitter_type !== 'R') continue; // só vale para transmissor remoto
     segments.push({ val: code, label: opt.label, optional: true });
   }
 
@@ -1703,10 +1841,10 @@ function autofillDnDefaults(dnCode) {
   if (defaults.unit !== undefined) {
     // pdf-qunit is now a <select> — set directly if no user override
     const qunitEl = document.getElementById('pdf-qunit');
-    if (qunitEl && (!qunitEl.dataset.auto || qunitEl.dataset.auto === '1')) {
+    if (qunitEl && !qunitEl.dataset.userEdited) {
       // Try to match an option; if not found, leave as-is
       const match = [...qunitEl.options].some(o => o.value === defaults.unit);
-      if (match) { qunitEl.value = defaults.unit; qunitEl.dataset.auto = '1'; }
+      if (match) qunitEl.value = defaults.unit;
     }
   }
 
@@ -1732,7 +1870,13 @@ function autofillDnDefaults(dnCode) {
     if (qmaxEl) qmaxEl.placeholder = 'Ex: 18000';
   }
 
-  document.getElementById('pdf-qmax')?.dispatchEvent(new Event('input'));
+  // Trigger range update (re-set auto após dispatch pois o listener de edição manual apaga dataset.auto)
+  const qmaxEl = document.getElementById('pdf-qmax');
+  if (qmaxEl) {
+    const wasAuto = qmaxEl.dataset.auto === '1';
+    qmaxEl.dispatchEvent(new Event('input'));
+    if (wasAuto) qmaxEl.dataset.auto = '1';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1791,6 +1935,45 @@ function setupNumericValidation() {
   });
 }
 
+// Limpa o formulário de condições (valores e marcadores auto/userEdited), voltando os
+// selects ao padrão do HTML. Por padrão mantém o cabeçalho (cliente, nº doc, aplicação, notas).
+const CONDITIONS_HEADER_FIELDS = ['pdf-cliente', 'pdf-num-doc', 'pdf-aplicacao', 'pdf-notas'];
+function clearProcessConditionFields({ includeHeader = false } = {}) {
+  document.querySelectorAll('#conditions-section .pdf-extra-field, #conditions-section .unit-select, #pdf-face, #pdf-range')
+    .forEach(field => {
+      if (!includeHeader && CONDITIONS_HEADER_FIELDS.includes(field.id)) return;
+      delete field.dataset.auto;
+      delete field.dataset.userEdited;
+      if (field.tagName === 'SELECT') {
+        const def = [...field.options].find(o => o.defaultSelected) || field.options[0];
+        field.value = def ? def.value : '';
+      } else {
+        field.value = '';
+      }
+    });
+  document.getElementById('range-warning')?.classList.add('hidden');
+}
+
+// Valores que o auto-fill produziria para a configuração atual (vazão, face, unidade)
+function expectedAutoFill() {
+  const fam = currentFamily;
+  const out = {};
+  if (typeof fam?.getFlowRange === 'function') {
+    const r = fam.getFlowRange(paramValues);
+    if (r) { out.qmin = r.qmin; out.qmax = r.qmax; }
+    out.unit = 'm³/h';
+  }
+  if (typeof fam?.getDnDefaults === 'function' && paramValues.dn) {
+    const d = fam.getDnDefaults(paramValues.dn, document.getElementById('pdf-estado')?.value || '');
+    if (d) {
+      if (!d.isGas) { out.qmin = d.qmin; out.qmax = d.qmax; }
+      if (d.face !== undefined) out.face = d.face;
+      if (d.unit !== undefined) out.unit = d.unit;
+    }
+  }
+  return out;
+}
+
 function setupConditionsListeners() {
   setupNumericValidation();
 
@@ -1810,17 +1993,37 @@ function setupConditionsListeners() {
 
   // Auto-calculate flow range ratio
   const updateRange = () => {
-    const parseVal = v => parseFloat((v || '').replace(/\./g, '').replace(',', '.'));
+    // Aceita "1.500,5" (pt-BR), "1.500" (milhar) e "3.85" (decimal vindo das tabelas TYL/TBQM)
+    const parseVal = v => {
+      const s = String(v || '').trim();
+      if (s.includes(',')) return parseFloat(s.replace(/\./g, '').replace(',', '.'));
+      if (/^\d{1,3}(\.\d{3})+$/.test(s)) return parseFloat(s.replace(/\./g, ''));
+      return parseFloat(s);
+    };
     const min = parseVal(document.getElementById('pdf-qmin')?.value);
     const max = parseVal(document.getElementById('pdf-qmax')?.value);
     const rangeEl = document.getElementById('pdf-range');
+    const warnEl = document.getElementById('range-warning');
     if (!rangeEl) return;
+    let warning = '';
     if (min && max && min > 0) {
-      rangeEl.value = '1:' + Math.round((max / min) / 10) * 10;
+      const ratio = max / min;
+      // Range mínimo dos medidores é 1:10 — abaixo disso há erro em Qmín/Qmáx.
+      // Mostra a relação real (sem arredondar para dezena, que virava "1:0").
+      if (ratio < 10) {
+        rangeEl.value = '1:' + (Math.round(ratio * 10) / 10).toString().replace('.', ',');
+        warning = `A relação Qmáx/Qmín é ${rangeEl.value}. O range nunca é menor que 1:10, então confira os valores de Qmín e Qmáx.`;
+      } else {
+        rangeEl.value = '1:' + Math.round(ratio / 10) * 10;
+      }
       rangeEl.dataset.auto = '1';
     } else {
       rangeEl.value = '';
       delete rangeEl.dataset?.auto;
+    }
+    if (warnEl) {
+      warnEl.textContent = warning;
+      warnEl.classList.toggle('hidden', !warning);
     }
   };
   document.getElementById('pdf-qmin')?.addEventListener('input', updateRange);
@@ -1849,8 +2052,7 @@ function setupConditionsListeners() {
 
   // Back to configure button
   document.getElementById('btn-back-configure')?.addEventListener('click', () => {
-    editingSpecId = null;
-    navigate('configure');
+    navigate('configure', Math.max(0, getWizardSteps().length - 1));
   });
 
   // Reset
@@ -1880,31 +2082,15 @@ function setupConditionsListeners() {
         }
       }
     }
-    document.querySelectorAll('.pdf-extra-field').forEach(el => {
-      // Don't blank out select defaults — restore sensible defaults instead
-      if (el.tagName === 'SELECT') return;
-      el.value = '';
-    });
-    // Restore select defaults
-    const defU = document.getElementById('pdf-p-unit');
-    if (defU) defU.value = 'bar';
-    const defPressaoU = document.getElementById('pdf-pressao-unit');
-    if (defPressaoU) defPressaoU.value = 'bar';
-    const defQU = document.getElementById('pdf-qunit');
-    if (defQU) defQU.value = 'm³/h';
-    const defEstado = document.getElementById('pdf-estado');
-    if (defEstado) defEstado.value = '';
-    const defSentido = document.getElementById('pdf-sentido');
-    if (defSentido) { defSentido.value = ''; delete defSentido.dataset.userEdited; }
-    currentStepIndex = 0;
-    phase = currentFamily ? 'configure' : 'family';
-    render();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    clearProcessConditionFields({ includeHeader: true });
+    navigate(currentFamily ? 'configure' : 'family', 0);
   });
 
-  // Sentido: track manual edits
-  document.getElementById('pdf-sentido')?.addEventListener('change', function() {
-    this.dataset.userEdited = '1';
+  // Sentido e unidade de vazão: track manual edits (não são mais sobrescritos pelo auto-fill)
+  ['pdf-sentido', 'pdf-qunit'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', function() {
+      this.dataset.userEdited = '1';
+    });
   });
 
   // Excel / PDF / Folha buttons
@@ -1972,7 +2158,11 @@ function parseCode(raw) {
   for (const key of sortedKeys) {
     if (raw.startsWith(FAMILIES[key].prefix.toUpperCase())) { famKey = key; break; }
   }
-  if (!famKey) { setMsg('● Prefixo não reconhecido. Inicia com TEFP, TCF, TUS, 0R ou 0T?', false); return; }
+  if (!famKey) {
+    const prefixes = Object.values(FAMILIES).map(f => f.prefix).join(', ');
+    setMsg('● Prefixo não reconhecido. O código deve iniciar com: ' + prefixes, false);
+    return;
+  }
 
   const fam = FAMILIES[famKey];
   let pos = fam.prefix.length;
@@ -1993,7 +2183,12 @@ function parseCode(raw) {
     if (foundDesig) { newParams.designacao = foundDesig; newParams.conexao = foundConn; }
     else errors.push('Prefixo "' + prefixo + '" não reconhecido na tabela TYL');
 
-    // Skip precisão (pos 4, always '1')
+    // Precisão (pos 4): TYL é sempre CE 1% ('1')
+    const precChunk = raw.slice(4, 5);
+    const precParam = fam.parameters.find(p => p.id === 'precisao');
+    const precFound = (precParam?.options || []).find(o => o.code === precChunk);
+    if (precFound) newParams.precisao = precFound.code;
+    else if (precChunk) errors.push('Classe de Exatidão: "' + precChunk + '" não reconhecida');
     pos = 5;
     // Code structure after PREFIXO+PRECISÃO: sensor(1) termopoço(1) cor(1,fixo) range(1) dist_face(1,auto) específicos(1)
     const rotParamMap = [
@@ -2125,14 +2320,22 @@ function parseCode(raw) {
 
   } else if (famKey === 'TEC') {
     // ── TEC custom parse ──
-    // Structure: 0TEC + PRESSAO(1) + COMUNICACAO(1) + 0001(fixed suffix, ignored)
+    // Structure: TEC-III-[Pressão]-[Correção]-[IoT]-[Com.Local]-[Corrente]-[Sinal]
+    // Campos no padrão (código vazio) são omitidos do código — cada trecho é casado com o
+    // próximo parâmetro que tenha essa opção (os códigos não se repetem entre parâmetros)
+    const tokens = raw.slice(pos).split('-').filter(Boolean);
+    let ti = 0;
     for (const param of fam.parameters) {
-      const chunk = raw.slice(pos, pos + 1); pos += 1;
-      const found = param.options.find(o => o.code.toUpperCase() === chunk);
-      if (found) newParams[param.id] = found.code;
-      else errors.push(param.label + ': "' + chunk + '" não reconhecido');
+      const tok = tokens[ti];
+      const found = tok != null && param.options.find(o => o.code && o.code.toUpperCase() === tok);
+      if (found) { newParams[param.id] = found.code; ti++; }
+      else if (param.options.some(o => o.code === '')) newParams[param.id] = '';
+      else {
+        errors.push(param.label + ': ' + (tok != null ? '"' + tok + '" não reconhecido' : 'ausente'));
+        if (tok != null) ti++;
+      }
     }
-    // trailing '0001' is fixed — nothing to parse
+    if (ti < tokens.length) errors.push('Trecho não reconhecido: "' + tokens.slice(ti).join('-') + '"');
 
   } else {
     // ── Standard linear parse (TEF / TCF) ──
@@ -2172,14 +2375,26 @@ function parseCode(raw) {
   if (errors.length > 0) setMsg('● ' + errors.join(' | '), false);
   else setMsg('✓ Código decodificado com sucesso!', true);
 
+  editingSpecId = null;
   restoreState(famKey, newParams, newOptionals, 'summary');
 }
 
 // ═══════════════════════════════════════════════════════════════
 // PROCESS CONDITIONS EXTRAS
 // ═══════════════════════════════════════════════════════════════
+// Famílias com conditionsHeaderOnly (TEC) só mostram cliente/nº doc/aplicação na tela de
+// condições (+ notas) — os demais campos ficam ocultos e não podem vazar para o Excel/Proposta.
+const HEADER_ONLY_EXTRAS = ['cliente', 'num_doc', 'aplicacao', 'notas'];
 function getExtras() {
-  const pUnit = document.getElementById('pdf-p-unit')?.value || '';
+  const ex = readAllExtras();
+  if (!currentFamily?.conditionsHeaderOnly) return ex;
+  const out = {};
+  HEADER_ONLY_EXTRAS.forEach(k => { out[k] = ex[k]; });
+  return out;
+}
+
+function readAllExtras() {
+  const pUnit =document.getElementById('pdf-p-unit')?.value || '';
   const qUnit = document.getElementById('pdf-qunit')?.value || '';
   const pressaoVal = document.getElementById('pdf-pressao')?.value || '';
   const pressaoUnit = document.getElementById('pdf-pressao-unit')?.value || '';
@@ -2236,13 +2451,7 @@ async function buildExcelWorksheet() {
 
   const fam = currentFamily;
   const map = fam.pdfMappings || {};
-  // Famílias com skipConditions (TEC) nunca exibem o formulário de condições,
-  // então os campos DOM podem conter valores residuais de outra família.
-  // Passa apenas os campos de cabeçalho para não contaminar a planilha.
-  const rawEx = getExtras();
-  const ex = fam.skipConditions
-    ? { cliente: rawEx.cliente, num_doc: rawEx.num_doc, aplicacao: rawEx.aplicacao, notas: rawEx.notas }
-    : rawEx;
+  const ex = getExtras();
 
   /* global FD_CORIOLIS_B64, FD_TEMPLATE_B64, FD_ROT_B64, FD_TURB_B64, FD_TEC_B64, FD_TUS_B64 */
   const TEMPLATE_B64_MAP = {
@@ -2294,6 +2503,18 @@ async function buildExcelWorksheet() {
   } else {
     showToast('Mapeamento Excel não definido para esta família.', false);
   }
+
+  // Os templates TYL/TBQM trazem abas internas (cotação, base de preços, proposta comercial
+  // de outro cliente) — só a folha de dados pode sair no arquivo entregue ao cliente.
+  const dataSheet = getSheet('FOLHA DE DADOS IT1') || ws;
+  const removedSheets = workbook.worksheets.filter(w => w !== dataSheet);
+  removedSheets.forEach(w => workbook.removeWorksheet(w.id));
+  // Remove nomes definidos que apontam para as abas removidas (ex.: _FilterDatabase da proposta)
+  const removedNames = removedSheets.map(w => w.name);
+  workbook.definedNames.model = (workbook.definedNames.model || [])
+    .filter(n => !(n.ranges || []).some(r => removedNames.some(sn => r.includes(sn))));
+  dataSheet.state = 'visible';
+  workbook.views = [{ activeTab: 0, firstSheet: 0, visibility: 'visible' }];
 
   return { workbook, code };
 }
@@ -3076,15 +3297,6 @@ function formatDateBR(value) {
   return d.toLocaleDateString('pt-BR');
 }
 
-function formatMoneyBR(value) {
-  const n = Number(value || 0);
-
-  return n.toLocaleString('pt-BR', {
-    style: 'currency',
-    currency: 'BRL'
-  });
-}
-
 
 // Renderiza um worksheet ExcelJS diretamente no jsPDF
 function xlsxWorksheetToPdf(ws, workbook, doc, pageW, pageH) {
@@ -3679,51 +3891,6 @@ async function generatePDF() {
 }
 
 
-function getWorksheetParaPdf(workbook) {
-  if (!workbook || !Array.isArray(workbook.worksheets)) {
-    throw new Error('Workbook inválido ou sem worksheets.');
-  }
-
-  // 1. Se existir folha de dados, usa ela para PDF de folha de dados
-  const folhaDados = workbook.worksheets.find(ws => {
-    const name = String(ws.name || '').toUpperCase();
-    return name.includes('FOLHA DE DADOS');
-  });
-
-  if (folhaDados) {
-    return folhaDados;
-  }
-
-  // 2. Se existir proposta, usa proposta
-  const proposta = workbook.worksheets.find(ws => {
-    const name = String(ws.name || '').toUpperCase();
-    return name.includes('PROPOSTA');
-  });
-
-  if (proposta) {
-    return proposta;
-  }
-
-  // 3. Nunca usar Planilha de Cotação como primeira opção
-  const naoAuxiliar = workbook.worksheets.find(ws => {
-    const name = String(ws.name || '').toUpperCase();
-
-    return ![
-      'PLANILHA DE COTAÇÃO',
-      'CHECK_LIST',
-      'BASE',
-      'ROTARY',
-      'TURBINE'
-    ].some(aux => name.includes(aux));
-  });
-
-  if (naoAuxiliar) {
-    return naoAuxiliar;
-  }
-
-  throw new Error('Nenhuma worksheet válida encontrada para gerar PDF.');
-}
-
 
 function getTipoDocumentoAtual(result, workbook) {
   // 1. Se algum lugar do código já informar explicitamente, usa isso
@@ -3834,6 +4001,11 @@ function restoreState(famKey, params, optionals, targetPhase, afterRender) {
   currentFamily    = FAMILIES[famKey];
   paramValues      = { ...params };
   optionalValues   = { ...optionals };
+  // Parâmetros fixos sempre valem a única opção (ex.: TYL CE 1%, mesmo em specs/códigos antigos)
+  currentFamily.parameters.forEach(p => { if (p.fixed) paramValues[p.id] = p.options[0].code; });
+  pruneInvalidSelections();
+  // Famílias sem condições de processo (TEC III) vão direto para o resumo
+  if (targetPhase === 'conditions' && currentFamily?.skipConditions) targetPhase = 'summary';
   navigate(targetPhase, 0);
   if (typeof afterRender === 'function') setTimeout(afterRender, 60);
 }
@@ -3846,9 +4018,10 @@ const STORAGE_KEY = 'aepio_gerador_specs';
 function getSavedSpecs() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
 }
+// Retorna false se o navegador recusou a gravação (armazenamento cheio/bloqueado)
 function setSavedSpecs(specs) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(specs)); }
-  catch (e) { showToast('Erro ao salvar: armazenamento cheio', false); }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(specs)); return true; }
+  catch (e) { showToast('Erro ao salvar: armazenamento do navegador cheio ou bloqueado', false); return false; }
 }
 
 // Captura todos os campos de condições do processo
@@ -3899,7 +4072,7 @@ function setProcessConditions(cond) {
   set('pdf-qmin',         cond.qmin);
   set('pdf-qnorm',        cond.qnorm);
   set('pdf-qmax',         cond.qmax);
-  set('pdf-qunit',        cond.qunit);
+  set('pdf-qunit',        cond.qunit || 'm³/h');
   // Backward-compat: pmin/pnorm/pmax may be {value,unit} objects in old saved specs
   set('pdf-pmin',  cond.pmin?.value  ?? cond.pmin);
   set('pdf-pnorm', cond.pnorm?.value ?? cond.pnorm);
@@ -3921,12 +4094,32 @@ function setProcessConditions(cond) {
   set('pdf-aplicacao',         cond.aplicacao);
   set('pdf-notas',             cond.notas);
 
-  // Recalcula range automaticamente
-  document.getElementById('pdf-qmax')?.dispatchEvent(new Event('input'));
+  // Marcadores de auto-fill: valor salvo igual ao automático continua automático
+  // (acompanha mudança de DN); valor diferente foi digitado e não pode ser sobrescrito.
+  const auto = expectedAutoFill();
+  ['qmin', 'qmax', 'face'].forEach(k => {
+    const field = document.getElementById('pdf-' + k);
+    if (!field) return;
+    if (field.value && String(auto[k] ?? '') === field.value) field.dataset.auto = '1';
+    else delete field.dataset.auto;
+  });
+  const sentidoEl = document.getElementById('pdf-sentido');
+  if (sentidoEl) { if (cond.sentido) sentidoEl.dataset.userEdited = '1'; else delete sentidoEl.dataset.userEdited; }
+  const qunitEl = document.getElementById('pdf-qunit');
+  if (qunitEl) { if (cond.qunit && cond.qunit !== auto.unit) qunitEl.dataset.userEdited = '1'; else delete qunitEl.dataset.userEdited; }
+
+  // Recalcula range automaticamente (preserva o marcador auto do qmax, apagado pelo listener de input)
+  const qmaxEl = document.getElementById('pdf-qmax');
+  if (qmaxEl) {
+    const wasAuto = qmaxEl.dataset.auto === '1';
+    qmaxEl.dispatchEvent(new Event('input'));
+    if (wasAuto) qmaxEl.dataset.auto = '1';
+  }
 }
 
-// Salva especificação atual com nome e cliente (cria nova ou atualiza se editingSpecId estiver ativo)
-function saveSpec(name, cliente) {
+// Salva especificação atual com nome e cliente (cria nova ou atualiza se editingSpecId estiver ativo;
+// asNew força a criação de uma cópia mesmo em modo edição)
+function saveSpec(name, cliente, asNew = false) {
   const { code } = buildCode();
   const data = {
     name:              name.trim(),
@@ -3940,35 +4133,62 @@ function saveSpec(name, cliente) {
   };
   const specs = getSavedSpecs();
 
-  if (editingSpecId !== null) {
+  if (editingSpecId !== null && !asNew) {
     const idx = specs.findIndex(s => s.id === editingSpecId);
-    editingSpecId = null;
     if (idx !== -1) {
       specs[idx] = { ...specs[idx], ...data };
-      setSavedSpecs(specs);
+      if (!setSavedSpecs(specs)) return null;
+      editingSpecId = null;
       return specs[idx];
     }
   }
 
   const spec = { id: generateId(), ...data };
   specs.unshift(spec);
-  setSavedSpecs(specs);
+  if (!setSavedSpecs(specs)) return null;
+  editingSpecId = null;
   return spec;
 }
 
-// Carrega especificação: restaura estado e navega para conditions
+// Carrega especificação em modo edição: restaura estado e navega para conditions.
+// A spec fica vinculada (editingSpecId) até salvar, sair da edição ou voltar ao início.
 function loadSpec(spec) {
   if (!FAMILIES[spec.familyKey]) { showToast('Família desconhecida: ' + spec.familyKey, false); return; }
+  editingSpecId = spec.id;
   restoreState(spec.familyKey, spec.paramValues, spec.optionalValues, 'conditions', () => {
     setProcessConditions(spec.processConditions);
     updateCode();
   });
 }
 
-// Carrega spec em modo edição
-function editSpec(spec) {
-  editingSpecId = spec.id;
-  loadSpec(spec);
+// Faixa "Editando especificação" exibida no wizard, condições e resumo
+function makeEditingBanner() {
+  const spec = editingSpecId ? getSavedSpecs().find(s => s.id === editingSpecId) : null;
+  if (!spec) return null;
+
+  const banner = el('div', { class: 'editing-banner' });
+  const info = el('div', { class: 'editing-banner-info' });
+  info.innerHTML = ICONS.edit;
+  const txt = el('span', {});
+  txt.append('Editando ');
+  const strong = el('strong', {});
+  strong.textContent = spec.name + (spec.cliente ? ' (' + spec.cliente + ')' : '');
+  txt.appendChild(strong);
+  txt.append(' — salve para atualizar a especificação.');
+  info.appendChild(txt);
+
+  const exitBtn = el('button', { type: 'button', class: 'editing-banner-exit', title: 'Continua com a configuração atual, mas desvinculada da especificação salva' });
+  exitBtn.textContent = 'Sair da edição';
+  exitBtn.addEventListener('click', () => {
+    editingSpecId = null;
+    document.getElementById('save-spec-area')?.replaceChildren();
+    render();
+    showToast('Edição encerrada — a especificação original não foi alterada.');
+  });
+
+  banner.appendChild(info);
+  banner.appendChild(exitBtn);
+  return banner;
 }
 
 // Remove especificação por id
@@ -3985,8 +4205,8 @@ function getSavedTemplates() {
   try { return JSON.parse(localStorage.getItem(TEMPLATES_KEY) || '[]'); } catch { return []; }
 }
 function setSavedTemplates(tmpls) {
-  try { localStorage.setItem(TEMPLATES_KEY, JSON.stringify(tmpls)); }
-  catch (e) { showToast('Erro ao salvar: armazenamento cheio', false); }
+  try { localStorage.setItem(TEMPLATES_KEY, JSON.stringify(tmpls)); return true; }
+  catch (e) { showToast('Erro ao salvar: armazenamento do navegador cheio ou bloqueado', false); return false; }
 }
 
 function saveTemplate(name, description) {
@@ -4003,8 +4223,7 @@ function saveTemplate(name, description) {
   };
   const tmpls = getSavedTemplates();
   tmpls.unshift(tmpl);
-  setSavedTemplates(tmpls);
-  return tmpl;
+  return setSavedTemplates(tmpls) ? tmpl : null;
 }
 
 function deleteTemplate(id) {
@@ -4015,6 +4234,8 @@ function deleteTemplate(id) {
 function applyTemplate(tmpl) {
   if (!FAMILIES[tmpl.familyKey]) { showToast('Família desconhecida: ' + tmpl.familyKey, false); return; }
   editingSpecId = null;
+  // Modelo = configuração nova: não aproveita condições/cabeçalho da especificação anterior
+  clearProcessConditionFields({ includeHeader: true });
   restoreState(tmpl.familyKey, tmpl.paramValues, tmpl.optionalValues, 'conditions');
   showToast('Modelo "' + tmpl.name + '" aplicado!');
 }
@@ -4080,7 +4301,7 @@ function updateSidebarClients() {
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;">
         <path d="M2 4a1 1 0 011-1h3.586a1 1 0 01.707.293L8 4h5a1 1 0 011 1v7a1 1 0 01-1 1H3a1 1 0 01-1-1V4z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
       </svg>
-      <span class="nav-client-name">${cliente}</span>
+      <span class="nav-client-name">${escapeHtml(cliente)}</span>
       <span class="nav-client-count">${counts[cliente]}</span>`;
     btn.addEventListener('click', () => {
       sidebarFilter = sidebarFilter === cliente ? null : cliente;
@@ -4106,7 +4327,7 @@ function updateSidebarClients() {
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;">
           <path d="M3 2h10a1 1 0 011 1v11l-4-2.5L6 14V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
         </svg>
-        <span class="nav-template-name">${tmpl.name}</span>`;
+        <span class="nav-template-name">${escapeHtml(tmpl.name)}</span>`;
       btn.addEventListener('click', () => applyTemplate(tmpl));
       container.appendChild(btn);
     });
@@ -4129,7 +4350,7 @@ function importSpecFromJson(jsonStr) {
     spec.name = spec.name || 'Importado — ' + new Date().toLocaleDateString('pt-BR');
     const specs = getSavedSpecs();
     specs.unshift(spec);
-    setSavedSpecs(specs);
+    if (!setSavedSpecs(specs)) throw new Error('armazenamento do navegador cheio ou bloqueado');
     return { ok: true, spec };
   } catch (e) {
     return { ok: false, error: e.message };
@@ -4159,7 +4380,7 @@ function showSaveSpecForm() {
 
   if (isEditMode) {
     const badge = el('div', { style: `display:inline-block;font-size:11px;font-weight:600;color:${fColor};background:${fColor}18;border-radius:6px;padding:2px 8px;margin-bottom:10px;` });
-    badge.textContent = 'Modo Edição — as alterações substituirão a especificação original';
+    badge.textContent = 'Modo Edição — "Salvar alterações" substitui a original; "Salvar como nova" mantém a original e cria uma cópia';
     area.appendChild(badge);
   }
 
@@ -4186,7 +4407,8 @@ function showSaveSpecForm() {
   clienteInput.type = 'text';
   clienteInput.setAttribute('list', 'aepio-clientes-list');
   clienteInput.placeholder = 'Ex: Petrobras, Vale, SABESP…';
-  if (editingSpec?.cliente) clienteInput.value = editingSpec.cliente;
+  // Sugere o cliente digitado nas condições (o mesmo que vai para a folha de dados)
+  clienteInput.value = editingSpec?.cliente || (document.getElementById('pdf-cliente')?.value || '').trim();
   clienteInput.addEventListener('focus', () => clienteInput.style.borderColor = fColor);
   clienteInput.addEventListener('blur',  () => clienteInput.style.borderColor = B.border);
   clienteInput.addEventListener('keydown', e => { if (e.key === 'Enter') { nameInput.focus(); } });
@@ -4197,10 +4419,10 @@ function showSaveSpecForm() {
   nameLabel.textContent = 'Nome da especificação';
   area.appendChild(nameLabel);
 
-  const row = el('div', { style: 'display:flex;gap:8px;align-items:center;' });
+  const row = el('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;' });
 
   const nameInput = el('input', {
-    style: `flex:1;padding:9px 12px;border:1px solid ${B.border};border-radius:8px;font-size:14px;font-family:inherit;color:${B.text};outline:none;`,
+    style: `flex:1;min-width:200px;padding:9px 12px;border:1px solid ${B.border};border-radius:8px;font-size:14px;font-family:inherit;color:${B.text};outline:none;`,
   });
   nameInput.type = 'text';
   nameInput.placeholder = 'Ex: Medidor linha 3 — água potável DN100';
@@ -4212,8 +4434,17 @@ function showSaveSpecForm() {
   const confirmBtn = el('button', {
     style: `padding:9px 18px;border-radius:8px;border:none;background:${fColor};color:#fff;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;white-space:nowrap;`,
   });
-  confirmBtn.textContent = isEditMode ? 'Atualizar' : 'Salvar';
-  confirmBtn.addEventListener('click', confirmSave);
+  confirmBtn.textContent = isEditMode ? 'Salvar alterações' : 'Salvar';
+  confirmBtn.addEventListener('click', () => confirmSave());
+
+  let saveAsNewBtn = null;
+  if (isEditMode) {
+    saveAsNewBtn = el('button', {
+      style: `padding:9px 14px;border-radius:8px;border:1px solid ${fColor};background:${B.white};font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;color:${fColor};white-space:nowrap;`,
+    });
+    saveAsNewBtn.textContent = 'Salvar como nova';
+    saveAsNewBtn.addEventListener('click', () => confirmSave(true));
+  }
 
   const cancelBtn = el('button', {
     style: `padding:9px 14px;border-radius:8px;border:1px solid ${B.border};background:${B.white};font-size:13px;font-family:inherit;cursor:pointer;color:${B.textMd};`,
@@ -4223,17 +4454,19 @@ function showSaveSpecForm() {
 
   row.appendChild(nameInput);
   row.appendChild(confirmBtn);
+  if (saveAsNewBtn) row.appendChild(saveAsNewBtn);
   row.appendChild(cancelBtn);
   area.appendChild(row);
 
   setTimeout(() => (isEditMode ? nameInput : clienteInput).focus(), 50);
 
-  function confirmSave() {
+  function confirmSave(asNew = false) {
     const name = nameInput.value.trim();
     if (!name) { nameInput.style.borderColor = '#C83030'; nameInput.focus(); return; }
     const cliente = clienteInput.value.trim();
-    const isEdit = editingSpecId !== null;
-    const saved = saveSpec(name, cliente);
+    const isEdit = editingSpecId !== null && !asNew;
+    const saved = saveSpec(name, cliente, asNew);
+    if (!saved) return; // falha já avisada; mantém o formulário aberto
     area.innerHTML = '';
     const label = cliente ? `"${name}" (${cliente})` : `"${name}"`;
     showToast(isEdit ? 'Especificação ' + label + ' atualizada!' : 'Especificação ' + label + ' salva!');
@@ -4305,7 +4538,7 @@ function showSaveTemplateForm() {
   confirmBtn.addEventListener('click', () => {
     const name = nameInput.value.trim();
     if (!name) { nameInput.style.borderColor = '#C83030'; nameInput.focus(); return; }
-    saveTemplate(name, descInput.value);
+    if (!saveTemplate(name, descInput.value)) return; // falha já avisada
     area.innerHTML = '';
     showToast('Modelo "' + name + '" salvo!');
     navigate('family');
@@ -4359,9 +4592,9 @@ function makeTemplatesSection() {
     const info = el('div', { style: 'flex:1;min-width:0;' });
     const desc = tmpl.description || '—';
     info.innerHTML = `
-      <div style="font-size:14px;font-weight:600;color:${B.text};margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${tmpl.name}</div>
-      <div style="font-size:12px;color:${B.textMd};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${desc}">${desc}</div>
-      <div style="font-size:11px;color:${B.textLt};margin-top:3px;font-family:'IBM Plex Mono',monospace;">${tmpl.orderCode || tmpl.familyKey}</div>`;
+      <div style="font-size:14px;font-weight:600;color:${B.text};margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(tmpl.name)}</div>
+      <div style="font-size:12px;color:${B.textMd};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(desc)}">${escapeHtml(desc)}</div>
+      <div style="font-size:11px;color:${B.textLt};margin-top:3px;font-family:'IBM Plex Mono',monospace;">${escapeHtml(tmpl.orderCode || tmpl.familyKey)}</div>`;
 
     // Actions
     const actions = el('div', { style: 'display:flex;gap:6px;flex-shrink:0;' });
@@ -4486,24 +4719,18 @@ function makeSavedSpecsSection() {
 
     const info = el('div', { style: 'flex:1;min-width:0;' });
     info.innerHTML = `
-      <div style="font-size:14px;font-weight:600;color:${B.text};margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${spec.name}</div>
+      <div style="font-size:14px;font-weight:600;color:${B.text};margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(spec.name)}</div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:${meta.color};">${spec.orderCode || '—'}</span>
-        <span style="font-size:11px;color:${B.textLt};">${spec.familyKey} · ${date}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:${meta.color};">${escapeHtml(spec.orderCode || '—')}</span>
+        <span style="font-size:11px;color:${B.textLt};">${escapeHtml(spec.familyKey)} · ${date}</span>
       </div>`;
 
     const actions = el('div', { class: 'spec-card-actions' });
 
     const loadBtn = el('button', { style: `padding:7px 14px;border-radius:7px;border:none;background:${meta.color};color:#fff;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;` });
-    loadBtn.textContent = 'Carregar';
+    loadBtn.textContent = 'Abrir';
+    loadBtn.title = 'Abrir para visualizar, editar ou gerar documentos';
     loadBtn.addEventListener('click', () => loadSpec(spec));
-
-    // Edit button
-    const editBtn = el('button', { style: `padding:7px 10px;border-radius:7px;border:1px solid ${B.border};background:${B.white};font-size:12px;color:${B.textMd};cursor:pointer;font-family:inherit;`, title: 'Editar especificação' });
-    editBtn.innerHTML = ICONS.edit;
-    editBtn.addEventListener('click', () => editSpec(spec));
-    editBtn.addEventListener('mouseenter', () => { editBtn.style.borderColor = meta.color; editBtn.style.color = meta.color; });
-    editBtn.addEventListener('mouseleave', () => { editBtn.style.borderColor = B.border; editBtn.style.color = B.textMd; });
 
     const exportBtn = el('button', { style: `padding:7px 10px;border-radius:7px;border:1px solid ${B.border};background:${B.white};font-size:12px;color:${B.textMd};cursor:pointer;font-family:inherit;`, title: 'Exportar como JSON' });
     exportBtn.innerHTML = ICONS.download;
@@ -4528,7 +4755,7 @@ function makeSavedSpecsSection() {
     delBtn.addEventListener('mouseenter', () => { delBtn.style.borderColor = '#C83030'; delBtn.style.color = '#C83030'; });
     delBtn.addEventListener('mouseleave', () => { delBtn.style.borderColor = B.border; delBtn.style.color = B.textLt; });
 
-    actions.appendChild(loadBtn); actions.appendChild(editBtn); actions.appendChild(exportBtn); actions.appendChild(delBtn);
+    actions.appendChild(loadBtn); actions.appendChild(exportBtn); actions.appendChild(delBtn);
     card.appendChild(iconWrap); card.appendChild(info); card.appendChild(actions);
     return card;
   }
@@ -5081,7 +5308,7 @@ function makeOrderPhase() {
       const specRow = el('div', { style: `padding:0 16px 10px 54px;display:flex;gap:6px;flex-wrap:wrap;` });
       specs.forEach(s => {
         const pill = el('span', { style: `display:inline-flex;align-items:center;gap:4px;font-size:10px;color:${B.textMd};background:${B.bg};border-radius:4px;padding:2px 8px;line-height:1.4;` });
-        pill.innerHTML = `<span style="font-weight:700;color:${B.textLt};text-transform:uppercase;letter-spacing:.03em;">${s.lbl}</span> ${s.val}`;
+        pill.innerHTML = `<span style="font-weight:700;color:${B.textLt};text-transform:uppercase;letter-spacing:.03em;">${escapeHtml(s.lbl)}</span> ${escapeHtml(s.val)}`;
         specRow.appendChild(pill);
       });
       itemWrap.appendChild(specRow);
@@ -5327,6 +5554,9 @@ function makeSummaryPhase() {
     </div>`;
   wrap.appendChild(hdr);
 
+  const editingBanner = makeEditingBanner();
+  if (editingBanner) wrap.appendChild(editingBanner);
+
   // ── Order Code card ──
   const codeCard = el('div', { style: `background:${B.white};border:1px solid ${B.border};border-radius:12px;padding:20px 22px;margin-bottom:20px;` });
 
@@ -5455,7 +5685,6 @@ function makeSummaryPhase() {
   // TYL-specific auto fields
   if (currentFamilyKey === 'TYL') {
     meterRows.push({ label: 'Cor', value: 'Alumínio Anodizado' });
-    meterRows.push({ label: 'Precisão', value: 'CE 1%' });
     const distFace = currentFamily.getDistFace?.(paramValues);
     if (distFace) meterRows.push({ label: 'Distância Face a Face', value: distFace + ' mm' });
   }
@@ -5509,7 +5738,7 @@ function makeSummaryPhase() {
   const expMenu = el('div', { class: 'dropdown-menu' });
   
   const sheetItem = el('button', { class: 'dropdown-item' });
-  sheetItem.innerHTML = ICONS.sheet + ' Gerar Folha de Resumo';
+  sheetItem.innerHTML = ICONS.sheet + ' Gerar Proposta Técnica';
   sheetItem.addEventListener('click', withButtonLoading(sheetItem, 'Gerando…', generateSummarySheet));
   expMenu.appendChild(sheetItem);
 
@@ -5653,7 +5882,6 @@ function collectParamRows(fam, famKey) {
   });
   if (famKey === 'TYL') {
     rows.push({ label: 'Cor', code: '0', desc: 'Alumínio Anodizado' });
-    rows.push({ label: 'Precisão', code: '1', desc: 'CE 1%' });
     const df = fam.getDistFace?.(paramValues);
     if (df) rows.push({ label: 'Dist. Face a Face', code: df+'mm', desc: df + ' mm' });
   }
@@ -5692,12 +5920,15 @@ function collectHighlights(famKey, paramRows) {
     hl.push({ label: 'Designação', val: find(/[Dd]esignação/) });
     hl.push({ label: 'Conexão', val: find(/[Cc]onexão/) });
     hl.push({ label: 'Range', val: find(/[Rr]ange/) });
-    hl.push({ label: 'Classe Pressão', val: 'ANSI#150', sub: 'Pmax 20 bar' });
+    const roscado = /ROSCADO/i.test(find(/[Cc]onexão/) || '');
+    hl.push({ label: 'Classe Pressão', val: roscado ? 'Roscado' : 'ANSI#150', sub: 'Pmax 20 bar' });
   } else if (famKey === 'TBQM') {
     hl.push({ label: 'Designação', val: find(/[Dd]esignação/) });
     hl.push({ label: 'Conexão', val: find(/[Cc]onexão/) });
     hl.push({ label: 'Material', val: find(/[Mm]aterial/) });
-    hl.push({ label: 'Classe Pressão', val: find(/[Cc]lasse/) });
+    const classe = find(/[Cc]lasse de [Pp]ress/);
+    const pmax = (typeof TBQM_PMAX_BY_CLASSE !== 'undefined') ? TBQM_PMAX_BY_CLASSE[classe] : null;
+    hl.push({ label: 'Classe Pressão', val: classe, sub: pmax ? 'Pmax ' + pmax + ' bar' : undefined });
   }
   return hl;
 }
@@ -5745,7 +5976,7 @@ const FAM_DISPLAY = {
 function pdfDrawHeader(ctx) {
   const { doc, W, ML, MR, hdrH, fR, fG, fB, famDisplay, clienteTitle, logoDataURI,
           headerLabel, headerY, ex } = ctx;
-  // headerLabel  — texto da linha pequena no topo do gradiente (padrão: 'RESUMO DO MEDIDOR SELECIONADO')
+  // headerLabel  — texto da linha pequena no topo do gradiente (padrão: 'PROPOSTA TÉCNICA')
   // headerY      — y de início do bloco (padrão: 0, útil para reusar em outras páginas)
   const baseY = headerY || 0;
 
@@ -5771,7 +6002,7 @@ function pdfDrawHeader(ctx) {
   doc.setFont('TreviaGroteska', 'bold');
   doc.setFontSize(6);
   doc.setTextColor(180, 200, 220);
-  doc.text(pdfStripAccents(headerLabel || 'RESUMO DO MEDIDOR SELECIONADO'), ML, baseY + 9);
+  doc.text(pdfStripAccents(headerLabel || 'PROPOSTA TÉCNICA'), ML, baseY + 9);
 
   doc.setFontSize(16);
   doc.setTextColor(255, 255, 255);
@@ -6107,7 +6338,7 @@ function generateSummarySheet() {
   y = pdfDrawNotes(ctx, y);
   pdfDrawFooter(doc, date, ML, MR, W, H);
 
-  const fileName = ('Resumo_' + currentFamilyKey + '_' + (code || 'config') + '.pdf').replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+  const fileName = ('PropostaTecnica_' + currentFamilyKey + '_' + (code || 'config') + '.pdf').replace(/[^a-zA-Z0-9_\-\.]/g, '_');
   doc.save(fileName);
   showToast('PDF salvo com sucesso!');
 
@@ -6184,7 +6415,6 @@ function collectParamRowsFromValues(fam, famKey, pv) {
   });
   if (famKey === 'TYL') {
     rows.push({ label: 'Cor',      code: '0', desc: 'Alumínio Anodizado' });
-    rows.push({ label: 'Precisão', code: '1', desc: 'CE 1%' });
     const df = fam.getDistFace?.(pv);
     if (df) rows.push({ label: 'Dist. Face a Face', code: df + 'mm', desc: df + ' mm' });
   }
@@ -6494,7 +6724,8 @@ function showToast(message, ok = true) {
     box-shadow:0 4px 24px rgba(0,0,0,.22);
     animation:aepioSlideUp .2s ease;
     font-family:'Trevia Groteska',sans-serif;`;
-  toast.innerHTML = `<span style="flex-shrink:0;">${ok ? ICONS.check : '●'}</span> ${message}`;
+  toast.innerHTML = `<span style="flex-shrink:0;">${ok ? ICONS.check : '●'}</span>`;
+  toast.append(' ' + message); // texto puro — mensagens podem conter nomes digitados pelo usuário
   document.body.appendChild(toast);
   setTimeout(() => {
     toast.style.animation = 'aepioFadeOut .3s ease forwards';
@@ -6505,6 +6736,11 @@ function showToast(message, ok = true) {
 // ═══════════════════════════════════════════════════════════════
 // DOM HELPERS
 // ═══════════════════════════════════════════════════════════════
+// Escapa texto do usuário antes de interpolar em innerHTML (nomes, clientes, descrições, JSON importado)
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 function el(tag, attrs = {}, ...children) {
   const elem = document.createElement(tag);
   const KNOWN = { style: 1, class: 1, id: 1 };

@@ -275,8 +275,8 @@ const TYL = {
             id: 'precisao',
             label: 'Classe de Exatidão',
             required: true,
+            fixed: true,   // TYL é sempre CE 1%
             options: [
-                { code: '0', label: 'CE 0,5%' },
                 { code: '1', label: 'CE 1%' },
             ],
         },
@@ -353,8 +353,9 @@ const TYL = {
         const sensor     = parseSensor(resolveLabel(TYL, 'sensor', pv.sensor));
         const termoLabel = TERMO_MAP[pv.termopoco] || '';
         const espec      = SENTIDO_MAP[pv.especificos] || {};
-        const ceLabel    = pv.precisao === '0' ? 'CE 0,5%' : 'CE 1%';
+        const ceLabel    = 'CE 1%'; // TYL é sempre CE 1%
         const connPure   = (pv.conexao || '').replace(' ROSCADO', '');
+        const isRoscado  = / ROSCADO$/.test(pv.conexao || '');
         const key        = pv.designacao && pv.conexao ? (pv.designacao + '|' + pv.conexao) : null;
         const distFace   = key ? TYL_DIST_FACE[key] : '';
 
@@ -368,9 +369,9 @@ const TYL = {
         s('E7',  'ROTATIVO');
         s('E8',  pv.designacao || '');
         s('E9',  connPure);
-        s('H9',  'FLANGEADO RF ANSI#150');
+        s('H9',  isRoscado ? 'ROSCADO' : 'FLANGEADO RF ANSI#150');
         s('E10', 'ALUMÍNIO');
-        s('E11', 'ANSI#150');
+        s('E11', isRoscado ? '—' : 'ANSI#150');
         s('H11', 'PMAX 20 BAR');
         s('E12', ceLabel);
         s('E13', 'ALUMÍNIO ANODIZADO');

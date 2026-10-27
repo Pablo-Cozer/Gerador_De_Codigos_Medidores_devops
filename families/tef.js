@@ -199,7 +199,7 @@ const TEF = {
     ex_approval:      '00',      // Área Não Perigosa
     precision:        '2',       // 0,5% o.r.
     transmitter_housing: '1',    // Alumínio
-    electrical_conn:  'M',       // ISO M20 x 1,5
+    electrical_conn:  'N',       // ANSI 1/2 NPT
     power_supply:     'D',       // 24 V CC
     flange_material:  '1',       // Aço Carbono
     sensor_housing:   '1',       // Aço Carbono
@@ -208,7 +208,6 @@ const TEF = {
   },
   optionalDefaults: {
     language:         '01',      // Inglês
-    grounding_rings:  'R1',      // Anéis de Aterramento 304
   },
 
   parameters: [
@@ -608,12 +607,12 @@ const TEF = {
     // Qmax / Qmin do sensor (da tabela de DN, usam mesma unidade de vazão)
     if (qmaxSensor) {
       set('E20', qmaxSensor);
-      set('H20', ex.qunit || 'm\u00B3/h');
+      set('H20', 'm\u00B3/h'); // tabela do DN é sempre em m³/h
     }
     const qminSensor = (TEF_FLOW_BY_DN[pv.dn] || {}).qmin;
     if (qminSensor) {
       set('E21', qminSensor);
-      set('H21', ex.qunit || 'm\u00B3/h');
+      set('H21', 'm\u00B3/h'); // tabela do DN é sempre em m³/h
     }
 
     // Repetibilidade (derivada da precisão)

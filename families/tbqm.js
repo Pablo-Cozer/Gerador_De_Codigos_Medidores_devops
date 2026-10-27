@@ -101,6 +101,11 @@ const TBQM_CONN_BY_DESIG = {
 };
 
 // ── Classes de pressão por material ───────────────────────────────────────────
+// Pressão máxima por classe — ASME B16.5 grupo 1.1 (aço carbono) a 38 °C; PN16 = 16 bar
+const TBQM_PMAX_BY_CLASSE = {
+    'ANSI#150': '19,6', 'ANSI#300': '51,1', 'ANSI#600': '102,1', 'ANSI#900': '153,2', 'PN16': '16',
+};
+
 const TBQM_CLASSE_BY_MAT = {
     'AÇO CARBONO': ['ANSI#150','ANSI#300','ANSI#600','ANSI#900'],
     'ALUMÍNIO':    ['PN16'],
@@ -396,7 +401,8 @@ const TBQM = {
         s('H9',  'FLANGEADO RF ' + (pv.classe || 'ANSI#150'));
         s('E10', 'AÇO CARBONO');
         s('E11', pv.classe || 'ANSI#150');
-        s('H11', 'PMAX 20 BAR');
+        const pmax = TBQM_PMAX_BY_CLASSE[pv.classe || 'ANSI#150'];
+        s('H11', pmax ? 'PMAX ' + pmax + ' BAR' : '');
         s('E12', 'CE 1%');
         s('E13', corLabel);
         s('E14', rangeLabel);

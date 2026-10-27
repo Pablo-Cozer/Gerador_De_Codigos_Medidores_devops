@@ -18,7 +18,8 @@ const TEC = {
   id: 'TEC',
   name: 'TEC-III — Corretor de Volume',
   prefix: 'TEC-III',
-  skipConditions: true,
+  // A tela de condições mostra só cliente / nº doc / aplicação (cabeçalho da folha)
+  conditionsHeaderOnly: true,
 
   defaults: {
     pressao:   '0.08/1.0',
@@ -157,8 +158,8 @@ const TEC = {
 
     // ── IDENTIFICAÇÃO / APLICAÇÃO (rows 4-5) ─────────────────
     set('E4', 'ELETROCONVERSOR DE VOLUME DE GÁS');
-    set('E5', 'CONVERSOR DE VOLUME DE GÁS PARA AS CONDIÇÕES DE BASE');
-    set('H5', ex.aplicacao || '');
+    // E5:H5 é uma célula mesclada — a aplicação digitada substitui o texto padrão
+    set('E5', ex.aplicacao || 'CONVERSOR DE VOLUME DE GÁS PARA AS CONDIÇÕES DE BASE');
 
     // ── INVÓLUCRO (rows 6-10) ────────────────────────────────
     set('F6',  'Alumínio injetado');

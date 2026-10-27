@@ -515,6 +515,7 @@ const TCF = {
             return opt ? opt.label : '';
         },
         getClassePressao: (params) => {
+            if (params.process_conn === 'YYY') return params.process_conn_body_class || 'Especial';
             const conn = params.process_conn || '';
             if (conn.endsWith('1')) return 'PN16';
             if (conn.endsWith('3')) return 'PN40';
@@ -601,7 +602,7 @@ const TCF = {
         set('H6', ex.aplicacao || '');
 
         // DESIGNAÇÃO (R8)
-        set('E8', ex.designacao || ('TCF' + (pv.dn ? parseInt(pv.dn) : '')));
+        set('E8', ex.designacao || ('TCF' + (pv.dn ? String(pv.dn).padStart(3, '0') : '')));
 
         // TAMANHO / CONEXÃO (R9) — H9 = observação (ex: Special Connection)
         set('E9', dn);
